@@ -4,3 +4,8 @@
 
 # For packaging (development only)
 pyinstaller>=5.0
+
+# Additional dependencies
+tkinter
+pathlib
+concurrent.futures

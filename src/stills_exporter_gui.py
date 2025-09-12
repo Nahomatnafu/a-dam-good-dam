@@ -295,6 +295,10 @@ class StillsExporterGUI:
             return 0, 0
 
         base_name = self.get_clean_filename(video_path.name)
+        
+        # Create subfolder for this clip's stills
+        clip_stills_folder = Path(output_folder) / f"{base_name}_Stills"
+        clip_stills_folder.mkdir(exist_ok=True)
 
         # Get video duration
         duration = self.get_video_duration(video_path)
@@ -305,9 +309,9 @@ class StillsExporterGUI:
         # Calculate timestamps
         timestamps = self.calculate_timestamps(duration, frames_per_clip)
 
-        # Extract frames
+        # Extract frames to the clip's subfolder
         extracted_count = self.extract_frames_batch(
-            video_path, timestamps, output_folder, base_name, image_format
+            video_path, timestamps, clip_stills_folder, base_name, image_format
         )
 
         return 1, extracted_count  # processed_count, frames_count

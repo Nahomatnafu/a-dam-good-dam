@@ -43,18 +43,26 @@ class StillsExporterGUI:
         # Variables
         self.source_folder = tk.StringVar()
         self.output_folder = tk.StringVar()
-        self.frames_per_clip = tk.IntVar(value=10)
         self.image_format = tk.StringVar(value="png")
         self.max_workers = tk.IntVar(value=min(4, os.cpu_count() or 1))
         self.enable_ai_tagging = tk.BooleanVar(value=False)
         self.embed_metadata = tk.BooleanVar(value=False)
         self.vision_credentials = tk.StringVar()
         
+        # Settings file path
+        self.settings_file = Path.home() / ".stills_exporter_config.json"
+        
         # Check for ffmpeg
         self.ffmpeg_available = self.check_ffmpeg()
         
         self.setup_ui()
         self.load_settings()
+        
+        # Auto-detect credentials after UI is set up
+        self.auto_detect_credentials()
+        if self.vision_credentials.get():
+            self.log_message(f"Auto-detected credentials: {self.vision_credentials.get()}")
+        self.update_ai_status()
         
     def check_ffmpeg(self):
         """Check if ffmpeg is available in PATH"""
@@ -107,15 +115,16 @@ class StillsExporterGUI:
         settings_frame.columnconfigure(1, weight=1)
         row += 1
         
-        # Frames per clip
-        ttk.Label(settings_frame, text="Frames per clip:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        frames_spinbox = ttk.Spinbox(settings_frame, from_=1, to=100, textvariable=self.frames_per_clip, width=10)
-        frames_spinbox.grid(row=0, column=1, sticky=tk.W, padx=5)
+        # Remove frames per clip spinbox - now automatic
+        # Add info label instead
+        ttk.Label(settings_frame, text="Frames per video:", font=('TkDefaultFont', 9)).grid(row=0, column=0, sticky=tk.W, pady=2)
+        ttk.Label(settings_frame, text="Calculated automatically based on video duration", 
+                 font=('TkDefaultFont', 8), foreground='gray').grid(row=0, column=1, sticky=tk.W, padx=5)
         
         # Image format
         ttk.Label(settings_frame, text="Image format:").grid(row=1, column=0, sticky=tk.W, pady=2)
         format_combo = ttk.Combobox(settings_frame, textvariable=self.image_format, 
-                                   values=["png", "jpg", "bmp", "tiff"], width=10, state="readonly")
+                                   values=["png", "jpg", "bmp", "tiff"], state="readonly", width=10)
         format_combo.grid(row=1, column=1, sticky=tk.W, padx=5)
         
         # Max workers
@@ -123,12 +132,37 @@ class StillsExporterGUI:
         workers_spinbox = ttk.Spinbox(settings_frame, from_=1, to=16, textvariable=self.max_workers, width=10)
         workers_spinbox.grid(row=2, column=1, sticky=tk.W, padx=5)
         
-        # AI section
-        self.setup_ai_section(main_frame)
+        # AI Features section (simplified)
+        ai_frame = ttk.LabelFrame(main_frame, text="AI Features", padding="5")
+        ai_frame.grid(row=row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        row += 1
         
-        # Progress frame
-        progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding="10")
-        progress_frame.grid(row=row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        # AI Tagging checkbox
+        ttk.Checkbutton(ai_frame, text="Enable AI Tagging", 
+                       variable=self.enable_ai_tagging, command=self.on_ai_toggle).grid(row=0, column=0, sticky=tk.W, pady=2)
+        
+        # Credentials file selection
+        cred_frame = ttk.Frame(ai_frame)
+        cred_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=2)
+        ttk.Label(cred_frame, text="Credentials:").pack(side=tk.LEFT)
+        ttk.Entry(cred_frame, textvariable=self.vision_credentials, width=40).pack(side=tk.LEFT, padx=5)
+        ttk.Button(cred_frame, text="Browse", command=self.browse_credentials).pack(side=tk.LEFT)
+        
+        # Auto-detect credentials on startup
+        self.auto_detect_credentials()
+        
+        # Metadata embedding checkbox
+        ttk.Checkbutton(ai_frame, text="Embed Metadata", 
+                       variable=self.embed_metadata).grid(row=2, column=0, sticky=tk.W, pady=2)
+        
+        # AI Status label
+        self.ai_status = ttk.Label(ai_frame, text="", font=('TkDefaultFont', 8))
+        self.ai_status.grid(row=3, column=0, sticky=tk.W, pady=2)
+        self.update_ai_status()
+        
+        # Progress section
+        progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding="5")
+        progress_frame.grid(row=row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         progress_frame.columnconfigure(0, weight=1)
         row += 1
         
@@ -138,76 +172,80 @@ class StillsExporterGUI:
         self.progress_bar.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=2)
         
         # Status label
-        self.status_var = tk.StringVar(value="Ready")
-        self.status_label = ttk.Label(progress_frame, textvariable=self.status_var)
+        self.status_label = ttk.Label(progress_frame, text="Ready")
         self.status_label.grid(row=1, column=0, sticky=tk.W, pady=2)
         
-        # Log text area
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=row, column=0, columnspan=3, pady=10)
+        
+        self.export_button = ttk.Button(button_frame, text="Start Export", command=self.start_export)
+        self.export_button.grid(row=0, column=0, padx=5)
+        
+        self.stop_button = ttk.Button(button_frame, text="Stop", command=self.stop_export, state=tk.DISABLED)
+        self.stop_button.grid(row=0, column=1, padx=5)
+        
+        # Log area
         log_frame = ttk.LabelFrame(main_frame, text="Log", padding="5")
-        log_frame.grid(row=row, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        log_frame.grid(row=row+1, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(row, weight=1)
-        row += 1
+        main_frame.rowconfigure(row+1, weight=1)
         
         # Text widget with scrollbar
-        text_frame = ttk.Frame(log_frame)
-        text_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        text_frame.columnconfigure(0, weight=1)
-        text_frame.rowconfigure(0, weight=1)
-        
-        self.log_text = tk.Text(text_frame, height=8, wrap=tk.WORD)
-        scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=self.log_text.yview)
+        self.log_text = tk.Text(log_frame, height=8, wrap=tk.WORD)
+        scrollbar = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scrollbar.set)
         
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
-        # Buttons frame
-        buttons_frame = ttk.Frame(main_frame)
-        buttons_frame.grid(row=row, column=0, columnspan=3, pady=10)
-        
-        self.export_button = ttk.Button(buttons_frame, text="Start Export", command=self.start_export)
-        self.export_button.pack(side=tk.LEFT, padx=5)
-        
-        self.stop_button = ttk.Button(buttons_frame, text="Stop", command=self.stop_export, state=tk.DISABLED)
-        self.stop_button.pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(buttons_frame, text="Clear Log", command=self.clear_log).pack(side=tk.LEFT, padx=5)
-        
-        # Initialize
+        # Initialize threading
         self.export_thread = None
         self.stop_flag = threading.Event()
         
     def setup_ai_section(self, parent):
         """Setup AI tagging section"""
         ai_frame = ttk.LabelFrame(parent, text="AI Features", padding="10")
-        ai_frame.pack(fill=tk.X, pady=(10, 0))
+        ai_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(10, 0))
+        ai_frame.columnconfigure(1, weight=1)
         
         # Enable AI tagging
         ttk.Checkbutton(ai_frame, text="Enable AI Tagging (Google Vision)", 
                        variable=self.enable_ai_tagging,
-                       command=self.on_ai_toggle).pack(anchor=tk.W)
+                       command=self.on_ai_toggle).grid(row=0, column=0, columnspan=2, sticky=tk.W)
         
         # Credentials path
-        cred_frame = ttk.Frame(ai_frame)
-        cred_frame.pack(fill=tk.X, pady=(5, 0))
-        
-        ttk.Label(cred_frame, text="Credentials JSON:").pack(side=tk.LEFT)
-        ttk.Entry(cred_frame, textvariable=self.vision_credentials, 
-                 width=40).pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
-        ttk.Button(cred_frame, text="Browse", 
-                  command=self.browse_credentials).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Label(ai_frame, text="Credentials JSON:").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        ttk.Entry(ai_frame, textvariable=self.vision_credentials, 
+                 width=40).grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(5, 0), pady=(5, 0))
+        ttk.Button(ai_frame, text="Browse", 
+                  command=self.browse_credentials).grid(row=1, column=2, padx=(5, 0), pady=(5, 0))
         
         # Embed metadata
         ttk.Checkbutton(ai_frame, text="Embed metadata into videos (ExifTool)", 
-                       variable=self.embed_metadata).pack(anchor=tk.W, pady=(5, 0))
+                       variable=self.embed_metadata).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
         
         # Status
         self.ai_status = ttk.Label(ai_frame, text="", foreground="gray")
-        self.ai_status.pack(anchor=tk.W, pady=(5, 0))
+        self.ai_status.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
         
         self.update_ai_status()
+
+    def auto_detect_credentials(self):
+        """Auto-detect Google Cloud credentials file"""
+        possible_files = [
+            "google-vision-credentials.json",
+            "credentials.json",
+            "service-account.json",
+            "vision-credentials.json"
+        ]
+        
+        for filename in possible_files:
+            if Path(filename).exists():
+                self.vision_credentials.set(filename)
+                # Don't log here - log_text doesn't exist yet
+                break
 
     def on_ai_toggle(self):
         """Handle AI toggle"""
@@ -220,8 +258,21 @@ class StillsExporterGUI:
                                  foreground="orange")
         elif not self.enable_ai_tagging.get():
             self.ai_status.config(text="AI tagging disabled", foreground="gray")
+        elif not self.vision_credentials.get():
+            self.ai_status.config(text="⚠️ No credentials file selected", foreground="orange")
         else:
-            self.ai_status.config(text="✓ AI tagging enabled", foreground="green")
+            # Test credentials
+            try:
+                from vision_tagger import VisionTagger
+                tagger = VisionTagger(self.vision_credentials.get())
+                if tagger.mock_mode:
+                    self.ai_status.config(text="⚠️ Credentials invalid - using mock mode", 
+                                         foreground="orange")
+                else:
+                    self.ai_status.config(text="✓ AI tagging ready", foreground="green")
+            except Exception as e:
+                self.ai_status.config(text=f"⚠️ Credentials error: {str(e)[:50]}...", 
+                                     foreground="red")
 
     def browse_credentials(self):
         """Browse for Google Cloud credentials JSON"""
@@ -231,6 +282,7 @@ class StillsExporterGUI:
         )
         if filename:
             self.vision_credentials.set(filename)
+            self.update_ai_status()
             
     def browse_source(self):
         folder = filedialog.askdirectory(title="Select Source Folder")
@@ -299,6 +351,27 @@ class StillsExporterGUI:
             pass
         return None
 
+    def calculate_optimal_frames(self, duration_seconds):
+        """Calculate optimal number of frames based on video duration"""
+        if duration_seconds <= 0:
+            return 5  # Default fallback
+        
+        # Smart frame calculation logic
+        if duration_seconds <= 30:      # 0-30 seconds: 5 frames
+            return 5
+        elif duration_seconds <= 60:    # 30s-1min: 10 frames
+            return 10
+        elif duration_seconds <= 120:   # 1-2 minutes: 15 frames
+            return 15
+        elif duration_seconds <= 300:   # 2-5 minutes: 20 frames
+            return 20
+        elif duration_seconds <= 600:   # 5-10 minutes: 25 frames
+            return 25
+        elif duration_seconds <= 1800:  # 10-30 minutes: 30 frames
+            return 30
+        else:                          # 30+ minutes: 40 frames max
+            return 40
+
     def calculate_timestamps(self, duration, frames_count):
         """Calculate evenly spaced timestamps, avoiding head/tail"""
         timestamps = []
@@ -366,8 +439,8 @@ class StillsExporterGUI:
 
         return extracted_count
 
-    def process_single_video_with_ai(self, video_path, output_folder, frames_per_clip, image_format):
-        """Enhanced video processing with AI tagging"""
+    def process_single_video_with_ai(self, video_path, output_folder, image_format):
+        """Enhanced video processing with AI tagging - frames calculated automatically"""
         if self.stop_flag.is_set():
             return 0, 0
 
@@ -375,11 +448,15 @@ class StillsExporterGUI:
         clip_stills_folder = Path(output_folder) / f"{base_name}_Stills"
         clip_stills_folder.mkdir(exist_ok=True)
 
-        # Step 1: Extract frames (existing logic)
+        # Step 1: Get duration and calculate optimal frames
         duration = self.get_video_duration(video_path)
         if duration is None or duration <= 0:
             self.log_message(f"Could not read duration for {video_path.name}, skipping")
             return 0, 0
+
+        # Calculate optimal frames based on duration
+        frames_per_clip = self.calculate_optimal_frames(duration)
+        self.log_message(f"{video_path.name}: {duration:.1f}s → {frames_per_clip} frames")
 
         timestamps = self.calculate_timestamps(duration, frames_per_clip)
         extracted_count = self.extract_frames_batch(
@@ -390,47 +467,49 @@ class StillsExporterGUI:
             return 0, 0
 
         # Step 2: AI Tagging (if enabled)
-        if self.enable_ai_tagging.get() and VISION_AVAILABLE:
+        if self.enable_ai_tagging.get():
+            self.log_message(f"AI Tagging enabled for {video_path.name}")
+            
+            if not VISION_AVAILABLE:
+                self.log_message("⚠️ Google Vision library not available")
+                return 1, extracted_count
+                
             try:
-                self.log_message(f"Analyzing frames for {video_path.name}...")
+                self.log_message(f"Analyzing {extracted_count} frames for {video_path.name}...")
+                self.log_message(f"Using credentials: {self.vision_credentials.get()}")
                 
                 vision_tagger = VisionTagger(self.vision_credentials.get() or None)
                 
+                if vision_tagger.mock_mode:
+                    self.log_message("⚠️ Vision tagger in mock mode - check credentials")
+                else:
+                    self.log_message("✓ Vision tagger initialized successfully")
+                
                 # Get all extracted images
                 image_files = list(clip_stills_folder.glob(f"{base_name}_*.{image_format}"))
+                self.log_message(f"Found {len(image_files)} images to analyze")
                 
                 # Analyze each image
                 analysis_results = []
                 for img_path in image_files:
                     if self.stop_flag.is_set():
                         break
+                    self.log_message(f"  Analyzing {img_path.name}...")
                     result = vision_tagger.analyze_image(img_path)
                     analysis_results.append(result)
                 
-                # Create XML tags file
-                xml_path = clip_stills_folder / f"{base_name}_tags.xml"
-                vision_tagger.create_xml_tags(analysis_results, xml_path)
-                
-                self.log_message(f"Created AI tags: {xml_path.name}")
-                
-                # Step 3: Embed metadata (if enabled)
-                if self.embed_metadata.get():
-                    try:
-                        embedder = ExifEmbedder()
-                        if embedder.exiftool_available:
-                            metadata = embedder.parse_xml_tags(xml_path)
-                            success = embedder.embed_metadata(video_path, metadata)
-                            if success:
-                                self.log_message(f"Embedded metadata into {video_path.name}")
-                            else:
-                                self.log_message(f"Failed to embed metadata into {video_path.name}")
-                        else:
-                            self.log_message("ExifTool not available for metadata embedding")
-                    except Exception as e:
-                        self.log_message(f"Metadata embedding error: {str(e)}")
+                # Save analysis to XML
+                if analysis_results:
+                    xml_path = clip_stills_folder / f"{base_name}_tags.xml"
+                    vision_tagger.create_xml_tags(analysis_results, xml_path)
+                    self.log_message(f"✅ Saved AI analysis to {xml_path.name}")
+                else:
+                    self.log_message("❌ No analysis results to save")
                 
             except Exception as e:
-                self.log_message(f"AI tagging error for {video_path.name}: {str(e)}")
+                self.log_message(f"❌ AI tagging error for {video_path.name}: {str(e)}")
+                import traceback
+                self.log_message(f"Full error: {traceback.format_exc()}")
 
         return 1, extracted_count
 
@@ -438,7 +517,6 @@ class StillsExporterGUI:
         """Main export function with parallel processing"""
         source = self.source_folder.get().strip()
         output = self.output_folder.get().strip()
-        frames = self.frames_per_clip.get()
         img_format = self.image_format.get()
         max_workers = self.max_workers.get()
 
@@ -468,11 +546,19 @@ class StillsExporterGUI:
             return
 
         self.log_message(f"Found {len(video_files)} video files")
-        self.log_message(f"Target: {frames} {img_format} frames per clip")
+        self.log_message(f"Output format: {img_format}")
         self.log_message(f"Using {max_workers} parallel workers")
+        self.log_message("Frame count will be calculated automatically based on video duration")
+        
+        # Debug AI settings
+        self.log_message(f"AI Tagging checkbox: {self.enable_ai_tagging.get()}")
+        self.log_message(f"Credentials path: {self.vision_credentials.get()}")
         
         if self.enable_ai_tagging.get():
-            self.log_message("AI tagging enabled")
+            self.log_message("✅ AI tagging ENABLED")
+        else:
+            self.log_message("❌ AI tagging DISABLED")
+            
         if self.embed_metadata.get():
             self.log_message("Metadata embedding enabled")
         
@@ -489,7 +575,7 @@ class StillsExporterGUI:
             future_to_video = {
                 executor.submit(
                     self.process_single_video_with_ai,
-                    video_path, output, frames, img_format
+                    video_path, output, img_format
                 ): video_path
                 for video_path in video_files
             }
@@ -512,10 +598,13 @@ class StillsExporterGUI:
                     self.log_message(f"Error processing {video_path.name}: {str(e)}")
 
         # Final summary
-        self.log_message(f"\n✅ Export completed!")
-        self.log_message(f"Processed: {total_processed}/{len(video_files)} videos")
-        self.log_message(f"Extracted: {total_frames} total frames")
-        self.update_progress(100)
+        if not self.stop_flag.is_set():
+            self.log_message(f"\n✅ Export completed!")
+            self.log_message(f"Processed: {total_processed}/{len(video_files)} videos")
+            self.log_message(f"Total frames extracted: {total_frames}")
+            messagebox.showinfo("Success", f"Export completed!\n{total_processed} videos processed\n{total_frames} frames extracted")
+        else:
+            self.log_message("Export stopped by user")
 
     def start_export(self):
         """Start the export process in a separate thread"""
@@ -551,36 +640,32 @@ class StillsExporterGUI:
         self.stop_button.config(state=tk.DISABLED)
 
     def save_settings(self):
-        """Save current settings to a config file"""
-        settings = {
-            'source_folder': self.source_folder.get(),
-            'output_folder': self.output_folder.get(),
-            'frames_per_clip': self.frames_per_clip.get(),
-            'image_format': self.image_format.get(),
-            'max_workers': self.max_workers.get(),
-            'enable_ai_tagging': self.enable_ai_tagging.get(),
-            'embed_metadata': self.embed_metadata.get(),
-            'vision_credentials': self.vision_credentials.get()
-        }
-
+        """Save current settings to file"""
         try:
-            config_path = Path.home() / '.stills_exporter_config.json'
-            with open(config_path, 'w') as f:
+            settings = {
+                'source_folder': self.source_folder.get(),
+                'output_folder': self.output_folder.get(),
+                'image_format': self.image_format.get(),
+                'max_workers': self.max_workers.get(),
+                'enable_ai_tagging': self.enable_ai_tagging.get(),
+                'embed_metadata': self.embed_metadata.get(),
+                'vision_credentials': self.vision_credentials.get()
+            }
+            
+            with open(self.settings_file, 'w') as f:
                 json.dump(settings, f, indent=2)
         except Exception:
             pass  # Ignore save errors
 
     def load_settings(self):
-        """Load settings from config file"""
+        """Load settings from file"""
         try:
-            config_path = Path.home() / '.stills_exporter_config.json'
-            if config_path.exists():
-                with open(config_path, 'r') as f:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, 'r') as f:
                     settings = json.load(f)
                     
                     self.source_folder.set(settings.get('source_folder', ''))
                     self.output_folder.set(settings.get('output_folder', ''))
-                    self.frames_per_clip.set(settings.get('frames_per_clip', 10))
                     self.image_format.set(settings.get('image_format', 'png'))
                     self.max_workers.set(settings.get('max_workers', min(4, os.cpu_count() or 1)))
                     self.enable_ai_tagging.set(settings.get('enable_ai_tagging', False))

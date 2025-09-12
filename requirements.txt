@@ -1,0 +1,6 @@
+# Core dependencies for the Stills Exporter GUI
+# No external dependencies required - uses only Python standard library
+# tkinter is included with Python on Windows and macOS
+
+# For packaging (development only)
+pyinstaller>=5.0

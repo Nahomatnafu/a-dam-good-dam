@@ -14,8 +14,24 @@ from pathlib import Path
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import shutil
-from .vision_tagger import VisionTagger, VISION_AVAILABLE
-from .exif_embedder import ExifEmbedder
+try:
+    from vision_tagger import VisionTagger, VISION_AVAILABLE
+except ImportError:
+    try:
+        from src.vision_tagger import VisionTagger, VISION_AVAILABLE
+    except ImportError:
+        VISION_AVAILABLE = False
+        class VisionTagger:
+            def __init__(self, *args): pass
+
+try:
+    from exif_embedder import ExifEmbedder
+except ImportError:
+    try:
+        from src.exif_embedder import ExifEmbedder
+    except ImportError:
+        class ExifEmbedder:
+            def __init__(self): self.exiftool_available = False
 
 class StillsExporterGUI:
     def __init__(self, root):
@@ -454,6 +470,12 @@ class StillsExporterGUI:
         self.log_message(f"Found {len(video_files)} video files")
         self.log_message(f"Target: {frames} {img_format} frames per clip")
         self.log_message(f"Using {max_workers} parallel workers")
+        
+        if self.enable_ai_tagging.get():
+            self.log_message("AI tagging enabled")
+        if self.embed_metadata.get():
+            self.log_message("Metadata embedding enabled")
+        
         self.log_message("Starting export...")
 
         # Reset progress
@@ -472,7 +494,7 @@ class StillsExporterGUI:
                 for video_path in video_files
             }
 
-            # Process completed jobs
+            # Collect results
             for future in as_completed(future_to_video):
                 if self.stop_flag.is_set():
                     break
@@ -483,26 +505,17 @@ class StillsExporterGUI:
                     total_processed += processed_count
                     total_frames += frames_count
 
-                    self.log_message(f"{video_path.name} → {frames_count} frames")
-
-                    # Update progress
                     progress = (total_processed / len(video_files)) * 100
                     self.update_progress(progress)
-                    self.update_status(f"Processed {total_processed}/{len(video_files)} videos")
 
                 except Exception as e:
                     self.log_message(f"Error processing {video_path.name}: {str(e)}")
 
-        # Final status
-        if self.stop_flag.is_set():
-            self.log_message("Export stopped by user")
-            self.update_status("Export stopped")
-        else:
-            self.log_message(f"Export completed! Processed {total_processed} videos, extracted {total_frames} frames")
-            self.update_status("Export completed")
-            self.update_progress(100)
-
-        self.save_settings()
+        # Final summary
+        self.log_message(f"\n✅ Export completed!")
+        self.log_message(f"Processed: {total_processed}/{len(video_files)} videos")
+        self.log_message(f"Extracted: {total_frames} total frames")
+        self.update_progress(100)
 
     def start_export(self):
         """Start the export process in a separate thread"""
@@ -564,15 +577,15 @@ class StillsExporterGUI:
             if config_path.exists():
                 with open(config_path, 'r') as f:
                     settings = json.load(f)
-
-                self.source_folder.set(settings.get('source_folder', ''))
-                self.output_folder.set(settings.get('output_folder', ''))
-                self.frames_per_clip.set(settings.get('frames_per_clip', 10))
-                self.image_format.set(settings.get('image_format', 'png'))
-                self.max_workers.set(settings.get('max_workers', min(4, os.cpu_count() or 1)))
-                self.enable_ai_tagging.set(settings.get('enable_ai_tagging', False))
-                self.embed_metadata.set(settings.get('embed_metadata', False))
-                self.vision_credentials.set(settings.get('vision_credentials', ''))
+                    
+                    self.source_folder.set(settings.get('source_folder', ''))
+                    self.output_folder.set(settings.get('output_folder', ''))
+                    self.frames_per_clip.set(settings.get('frames_per_clip', 10))
+                    self.image_format.set(settings.get('image_format', 'png'))
+                    self.max_workers.set(settings.get('max_workers', min(4, os.cpu_count() or 1)))
+                    self.enable_ai_tagging.set(settings.get('enable_ai_tagging', False))
+                    self.embed_metadata.set(settings.get('embed_metadata', False))
+                    self.vision_credentials.set(settings.get('vision_credentials', ''))
         except Exception:
             pass  # Ignore load errors
 

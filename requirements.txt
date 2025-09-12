@@ -9,3 +9,4 @@ pyinstaller>=5.0
 tkinter
 pathlib
 concurrent.futures
+google-cloud-vision>=3.4.0

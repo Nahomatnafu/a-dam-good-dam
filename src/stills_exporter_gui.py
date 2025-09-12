@@ -14,6 +14,8 @@ from pathlib import Path
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import shutil
+from .vision_tagger import VisionTagger, VISION_AVAILABLE
+from .exif_embedder import ExifEmbedder
 
 class StillsExporterGUI:
     def __init__(self, root):
@@ -28,6 +30,9 @@ class StillsExporterGUI:
         self.frames_per_clip = tk.IntVar(value=10)
         self.image_format = tk.StringVar(value="png")
         self.max_workers = tk.IntVar(value=min(4, os.cpu_count() or 1))
+        self.enable_ai_tagging = tk.BooleanVar(value=False)
+        self.embed_metadata = tk.BooleanVar(value=False)
+        self.vision_credentials = tk.StringVar()
         
         # Check for ffmpeg
         self.ffmpeg_available = self.check_ffmpeg()
@@ -102,6 +107,9 @@ class StillsExporterGUI:
         workers_spinbox = ttk.Spinbox(settings_frame, from_=1, to=16, textvariable=self.max_workers, width=10)
         workers_spinbox.grid(row=2, column=1, sticky=tk.W, padx=5)
         
+        # AI section
+        self.setup_ai_section(main_frame)
+        
         # Progress frame
         progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding="10")
         progress_frame.grid(row=row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
@@ -155,6 +163,59 @@ class StillsExporterGUI:
         self.export_thread = None
         self.stop_flag = threading.Event()
         
+    def setup_ai_section(self, parent):
+        """Setup AI tagging section"""
+        ai_frame = ttk.LabelFrame(parent, text="AI Features", padding="10")
+        ai_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Enable AI tagging
+        ttk.Checkbutton(ai_frame, text="Enable AI Tagging (Google Vision)", 
+                       variable=self.enable_ai_tagging,
+                       command=self.on_ai_toggle).pack(anchor=tk.W)
+        
+        # Credentials path
+        cred_frame = ttk.Frame(ai_frame)
+        cred_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        ttk.Label(cred_frame, text="Credentials JSON:").pack(side=tk.LEFT)
+        ttk.Entry(cred_frame, textvariable=self.vision_credentials, 
+                 width=40).pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
+        ttk.Button(cred_frame, text="Browse", 
+                  command=self.browse_credentials).pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # Embed metadata
+        ttk.Checkbutton(ai_frame, text="Embed metadata into videos (ExifTool)", 
+                       variable=self.embed_metadata).pack(anchor=tk.W, pady=(5, 0))
+        
+        # Status
+        self.ai_status = ttk.Label(ai_frame, text="", foreground="gray")
+        self.ai_status.pack(anchor=tk.W, pady=(5, 0))
+        
+        self.update_ai_status()
+
+    def on_ai_toggle(self):
+        """Handle AI toggle"""
+        self.update_ai_status()
+
+    def update_ai_status(self):
+        """Update AI status display"""
+        if not VISION_AVAILABLE:
+            self.ai_status.config(text="⚠️ Google Vision library not installed", 
+                                 foreground="orange")
+        elif not self.enable_ai_tagging.get():
+            self.ai_status.config(text="AI tagging disabled", foreground="gray")
+        else:
+            self.ai_status.config(text="✓ AI tagging enabled", foreground="green")
+
+    def browse_credentials(self):
+        """Browse for Google Cloud credentials JSON"""
+        filename = filedialog.askopenfilename(
+            title="Select Google Cloud Credentials JSON",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if filename:
+            self.vision_credentials.set(filename)
+            
     def browse_source(self):
         folder = filedialog.askdirectory(title="Select Source Folder")
         if folder:
@@ -289,32 +350,73 @@ class StillsExporterGUI:
 
         return extracted_count
 
-    def process_single_video(self, video_path, output_folder, frames_per_clip, image_format):
-        """Process a single video file"""
+    def process_single_video_with_ai(self, video_path, output_folder, frames_per_clip, image_format):
+        """Enhanced video processing with AI tagging"""
         if self.stop_flag.is_set():
             return 0, 0
 
         base_name = self.get_clean_filename(video_path.name)
-        
-        # Create subfolder for this clip's stills
         clip_stills_folder = Path(output_folder) / f"{base_name}_Stills"
         clip_stills_folder.mkdir(exist_ok=True)
 
-        # Get video duration
+        # Step 1: Extract frames (existing logic)
         duration = self.get_video_duration(video_path)
         if duration is None or duration <= 0:
             self.log_message(f"Could not read duration for {video_path.name}, skipping")
             return 0, 0
 
-        # Calculate timestamps
         timestamps = self.calculate_timestamps(duration, frames_per_clip)
-
-        # Extract frames to the clip's subfolder
         extracted_count = self.extract_frames_batch(
             video_path, timestamps, clip_stills_folder, base_name, image_format
         )
 
-        return 1, extracted_count  # processed_count, frames_count
+        if extracted_count == 0:
+            return 0, 0
+
+        # Step 2: AI Tagging (if enabled)
+        if self.enable_ai_tagging.get() and VISION_AVAILABLE:
+            try:
+                self.log_message(f"Analyzing frames for {video_path.name}...")
+                
+                vision_tagger = VisionTagger(self.vision_credentials.get() or None)
+                
+                # Get all extracted images
+                image_files = list(clip_stills_folder.glob(f"{base_name}_*.{image_format}"))
+                
+                # Analyze each image
+                analysis_results = []
+                for img_path in image_files:
+                    if self.stop_flag.is_set():
+                        break
+                    result = vision_tagger.analyze_image(img_path)
+                    analysis_results.append(result)
+                
+                # Create XML tags file
+                xml_path = clip_stills_folder / f"{base_name}_tags.xml"
+                vision_tagger.create_xml_tags(analysis_results, xml_path)
+                
+                self.log_message(f"Created AI tags: {xml_path.name}")
+                
+                # Step 3: Embed metadata (if enabled)
+                if self.embed_metadata.get():
+                    try:
+                        embedder = ExifEmbedder()
+                        if embedder.exiftool_available:
+                            metadata = embedder.parse_xml_tags(xml_path)
+                            success = embedder.embed_metadata(video_path, metadata)
+                            if success:
+                                self.log_message(f"Embedded metadata into {video_path.name}")
+                            else:
+                                self.log_message(f"Failed to embed metadata into {video_path.name}")
+                        else:
+                            self.log_message("ExifTool not available for metadata embedding")
+                    except Exception as e:
+                        self.log_message(f"Metadata embedding error: {str(e)}")
+                
+            except Exception as e:
+                self.log_message(f"AI tagging error for {video_path.name}: {str(e)}")
+
+        return 1, extracted_count
 
     def export_stills(self):
         """Main export function with parallel processing"""
@@ -364,7 +466,7 @@ class StillsExporterGUI:
             # Submit all jobs
             future_to_video = {
                 executor.submit(
-                    self.process_single_video,
+                    self.process_single_video_with_ai,
                     video_path, output, frames, img_format
                 ): video_path
                 for video_path in video_files
@@ -442,7 +544,10 @@ class StillsExporterGUI:
             'output_folder': self.output_folder.get(),
             'frames_per_clip': self.frames_per_clip.get(),
             'image_format': self.image_format.get(),
-            'max_workers': self.max_workers.get()
+            'max_workers': self.max_workers.get(),
+            'enable_ai_tagging': self.enable_ai_tagging.get(),
+            'embed_metadata': self.embed_metadata.get(),
+            'vision_credentials': self.vision_credentials.get()
         }
 
         try:
@@ -465,6 +570,9 @@ class StillsExporterGUI:
                 self.frames_per_clip.set(settings.get('frames_per_clip', 10))
                 self.image_format.set(settings.get('image_format', 'png'))
                 self.max_workers.set(settings.get('max_workers', min(4, os.cpu_count() or 1)))
+                self.enable_ai_tagging.set(settings.get('enable_ai_tagging', False))
+                self.embed_metadata.set(settings.get('embed_metadata', False))
+                self.vision_credentials.set(settings.get('vision_credentials', ''))
         except Exception:
             pass  # Ignore load errors
 

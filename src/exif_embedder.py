@@ -70,16 +70,21 @@ class ExifEmbedder:
         
         cmd = ['exiftool', '-overwrite_original']
         
-        # Add metadata fields
+        # Write keywords as separate entries for proper array structure
         if metadata.get('keywords'):
-            keywords_str = ';'.join(metadata['keywords'])
-            cmd.extend([f'-Keywords={keywords_str}'])
+            # Clear existing keywords first
+            cmd.extend(['-Keywords='])
+            cmd.extend(['-Subject='])
+            cmd.extend(['-HierarchicalSubject='])
+            
+            # Add each keyword as a separate entry
+            for keyword in metadata['keywords']:
+                cmd.extend([f'-Keywords+={keyword}'])
+                cmd.extend([f'-Subject+={keyword}'])
+                cmd.extend([f'-HierarchicalSubject+={keyword}'])
         
         if metadata.get('description'):
             cmd.extend([f'-Description={metadata["description"]}'])
-        
-        if metadata.get('subject'):
-            cmd.extend([f'-Subject={metadata["subject"]}'])
         
         if metadata.get('comment'):
             cmd.extend([f'-Comment={metadata["comment"]}'])
@@ -96,4 +101,12 @@ class ExifEmbedder:
             return result.returncode == 0
         except Exception:
             return False
+
+
+
+
+
+
+
+
 

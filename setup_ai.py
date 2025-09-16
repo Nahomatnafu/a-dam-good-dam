@@ -108,6 +108,35 @@ def setup_credentials():
     
     create_test_credentials()
 
+def install_exiftool_windows():
+    """Download and install ExifTool for Windows"""
+    import urllib.request
+    import zipfile
+    
+    print("📥 Downloading ExifTool...")
+    url = "https://exiftool.org/exiftool-12.70.zip"
+    zip_path = "exiftool.zip"
+    
+    try:
+        urllib.request.urlretrieve(url, zip_path)
+        
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(".")
+        
+        # Rename to exiftool.exe
+        import shutil
+        shutil.move("exiftool(-k).exe", "exiftool.exe")
+        
+        print("✅ ExifTool installed to current directory")
+        print("💡 Add this directory to PATH or copy exiftool.exe to C:\\Windows\\System32\\")
+        
+        os.remove(zip_path)
+        return True
+        
+    except Exception as e:
+        print(f"❌ Download failed: {e}")
+        return False
+
 if __name__ == "__main__":
     print("🚀 Setting up AI features for Stills Exporter...")
     print("=" * 60)
@@ -122,6 +151,11 @@ if __name__ == "__main__":
     
     # Check ExifTool
     exiftool_ok = check_exiftool()
+    
+    # Install ExifTool if needed
+    if not exiftool_ok:
+        print("\n🔧 Attempting to install ExifTool...")
+        install_exiftool_windows()
     
     # Setup guide
     setup_credentials()
@@ -142,4 +176,6 @@ if __name__ == "__main__":
     print("1. Run: python test_ai_features.py")
     print("2. Run: python src/stills_exporter_gui.py")
     print("3. Test with existing stills in C:/Users/15073/Videos/NeoFinder_Test/Stills")
+
+
 

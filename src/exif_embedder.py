@@ -31,14 +31,17 @@ class ExifEmbedder:
         all_text = []
         total_faces = 0
         
+        # Handle the new VideoTags format
         for frame in root.findall('Frame'):
             # Collect labels
-            for label in frame.find('Labels').findall('Label'):
-                confidence = float(label.get('confidence', 0))
-                if confidence > 0.7:  # Only high-confidence labels
-                    all_labels.append(label.text)
+            labels_elem = frame.find('Labels')
+            if labels_elem is not None:
+                for label in labels_elem.findall('Label'):
+                    confidence = float(label.get('confidence', 0))
+                    if confidence > 0.7:  # Only high-confidence labels
+                        all_labels.append(label.text)
             
-            # Collect text
+            # Collect text (if exists)
             text_elem = frame.find('Text')
             if text_elem is not None and text_elem.text:
                 all_text.extend(text_elem.text.split(' | '))
@@ -93,3 +96,4 @@ class ExifEmbedder:
             return result.returncode == 0
         except Exception:
             return False
+

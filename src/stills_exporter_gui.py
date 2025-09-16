@@ -511,6 +511,33 @@ class StillsExporterGUI:
                 import traceback
                 self.log_message(f"Full error: {traceback.format_exc()}")
 
+        # Step 3: Metadata Embedding (if enabled and XML exists)
+        if self.embed_metadata.get():
+            xml_path = clip_stills_folder / f"{base_name}_tags.xml"
+            if xml_path.exists():
+                self.log_message(f"Embedding metadata from {xml_path.name}...")
+                
+                try:
+                    from exif_embedder import ExifEmbedder
+                    embedder = ExifEmbedder()
+                    metadata = embedder.parse_xml_tags(xml_path)
+                    
+                    # Show what we're embedding
+                    keywords = metadata.get('keywords', [])[:5]
+                    self.log_message(f"  Keywords: {', '.join(keywords)}")
+                    
+                    # Embed into original video
+                    success = embedder.embed_metadata(video_path, metadata)
+                    if success:
+                        self.log_message(f"✅ Metadata embedded into {video_path.name}")
+                    else:
+                        self.log_message(f"❌ Failed to embed metadata into {video_path.name}")
+                        
+                except Exception as e:
+                    self.log_message(f"❌ Embedding error: {str(e)}")
+            else:
+                self.log_message(f"⚠️ No XML file found for embedding: {xml_path}")
+
         return 1, extracted_count
 
     def export_stills(self):

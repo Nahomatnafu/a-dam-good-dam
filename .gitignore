@@ -16,39 +16,14 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-
-# Virtual environments
-.env
-.venv
-env/
+# Virtual Environment
 venv/
+env/
 ENV/
-env.bak/
-venv.bak/
 
 # IDE
 .vscode/
@@ -57,25 +32,27 @@ venv.bak/
 *.swo
 *~
 
+# Project Specific
+catalogs/*.db
+catalogs/*.db-journal
+thumbnails/
+temp/
+*.log
+
+# Test Data (don't commit large video files)
+test_data/
+NeoFinder_Test/
+
+# Credentials
+*credentials*.json
+*.key
+.env
+
 # OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Project specific
-config.json
-*.log
-test_videos/
-test_output/
-
-# Build artifacts
-build/dist/
-build/build/
-*.exe
-*.app
-*.dmg
-*.msi
+# Temporary files
+*.tmp
+*.temp

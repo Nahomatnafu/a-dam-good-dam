@@ -1,12 +1,22 @@
-# Core dependencies for the Stills Exporter GUI
-# No external dependencies required - uses only Python standard library
-# tkinter is included with Python on Windows and macOS
+# Core dependencies for Media Catalog
+# Uses Python standard library for most functionality
 
-# For packaging (development only)
+# GUI Framework
+tkinter  # Usually included with Python
+
+# Optional: Advanced GUI (for future upgrade)
+# PyQt5>=5.15.0
+# PyQt6>=6.0.0
+
+# AI Analysis (optional)
+google-cloud-vision>=3.4.0
+
+# Development and Building
 pyinstaller>=5.0
 
-# Additional dependencies
-tkinter
-pathlib
-concurrent.futures
-google-cloud-vision>=3.4.0
+# Testing and Development
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Performance monitoring (for Sprint 7)
+memory-profiler>=0.60.0

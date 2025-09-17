@@ -1,205 +1,170 @@
-# Stills Exporter
+# Media Catalog - NeoFinder Alternative with AI Analysis
 
-A cross-platform GUI application for extracting frames from video files with parallel processing for maximum efficiency.
+A cross-platform media cataloging application that scans video/image files, performs AI analysis for automatic tagging, and provides powerful search capabilities.
 
-## 🚀 Features
+## 🎯 Project Overview
 
-- **Cross-platform**: Works on Windows, macOS, and Linux
-- **Parallel processing**: Process multiple videos simultaneously for faster extraction
-- **Multiple video formats**: Supports MP4, MOV, MKV, AVI, MTS, M2TS, WMV, WebM, 3GP, M4V, and more
-- **Flexible output**: Choose PNG, JPG, BMP, or TIFF formats
-- **Smart frame selection**: Evenly spaced frames avoiding head/tail slates
-- **Clean interface**: Simple, intuitive GUI
-- **Progress tracking**: Real-time progress updates and logging
-- **Settings persistence**: Remembers your preferences
+This project builds on the existing Stills Exporter codebase to create a comprehensive media catalog system similar to NeoFinder, but with integrated AI analysis capabilities using Google Cloud Vision API.
 
-## 📋 Requirements
-
-### Essential
-- **FFmpeg** must be installed and available in your system PATH
-- **Python 3.7+** (for running from source)
-
-### FFmpeg Installation
-
-#### Windows:
-1. Download FFmpeg from [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
-2. Extract to a folder (e.g., `C:\ffmpeg`)
-3. Add the `bin` folder to your PATH environment variable
-
-#### macOS:
-```bash
-# Using Homebrew (recommended)
-brew install ffmpeg
-
-# Using MacPorts
-sudo port install ffmpeg
-```
-
-#### Linux:
-```bash
-# Ubuntu/Debian
-sudo apt update && sudo apt install ffmpeg
-
-# CentOS/RHEL/Fedora
-sudo dnf install ffmpeg
-
-# Arch Linux
-sudo pacman -S ffmpeg
-```
+### Key Features (Planned)
+- 📁 **Media Cataloging**: Scan folders and create searchable catalogs
+- 🤖 **AI Analysis**: Automatic keyword generation using Google Vision API
+- 🔍 **Advanced Search**: Search by filename, keywords, metadata
+- 🏷️ **Tag Management**: Add, edit, remove tags with sidebar interface
+- 👁️ **Preview Panel**: Video thumbnails and metadata display
+- 📍 **File Location**: "Show in Explorer/Finder" functionality
+- 💾 **Metadata Embedding**: Write keywords back to video files
 
 ## 🚀 Quick Start
 
-### Running from Source
+### Prerequisites
+- Python 3.7+
+- FFmpeg (for video processing)
+- ExifTool (for metadata embedding)
+- Google Cloud Vision API credentials (optional, for AI analysis)
+
+### Setup
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/stills-exporter.git
-cd stills-exporter
+git clone <your-repo-url>
+cd media-catalog
 
-# Run the application
-python run.py
-# or on Windows: double-click run.bat
-```
-
-## 🏗️ Building Standalone Application
-
-### Quick Build (Recommended)
-
-#### Windows:
-1. Double-click `build/build_windows.bat`
-2. Wait for the build to complete
-3. Find `StillsExporter.exe` in the `dist` folder
-
-#### macOS:
-1. Open Terminal in the project folder
-2. Run: `./build/build_mac.sh`
-3. Find `StillsExporter.app` in the `dist` folder
-
-### Manual Build
-```bash
 # Install dependencies
-pip install pyinstaller
+pip install -r requirements.txt
 
-# Run build script
-cd build
-python build_app.py
+# Test the foundation
+python test_catalog_foundation.py
 ```
 
-## 🎯 Usage
-
-### GUI Application
-1. Launch the application (`StillsExporter.exe` or `StillsExporter.app`)
-2. **Source Folder**: Select folder containing your video files
-3. **Output Folder**: Choose where to save extracted frames
-4. **Settings**:
-   - **Frames per clip**: Number of frames to extract from each video (1-100)
-   - **Image format**: PNG (best quality), JPG (smaller files), BMP, or TIFF
-   - **Parallel workers**: Number of videos to process simultaneously (1-16)
-5. Click **Start Export**
-6. Monitor progress in the log area
-
-### Command Line (PowerShell - Original)
-```powershell
-.\scripts\export_stills.ps1 -InputDir "C:\Videos" -OutputDir "C:\Stills" -FramesPerClip 10 -ImageExt png
-```
-
-### Command Line (PowerShell - Improved with Parallel Processing)
-```powershell
-.\scripts\improved_export_stills.ps1 -InputDir "C:\Videos" -OutputDir "C:\Stills" -FramesPerClip 10 -ImageExt png -MaxParallel 4
-```
-
-## ⚡ Performance Improvements
-
-The new version includes several efficiency improvements over the original PowerShell script:
-
-### Original Script Efficiency
-Your original PowerShell script was already quite good:
-- ✅ Accurate seeking with `-ss` after `-i`
-- ✅ Smart timestamp calculation
-- ✅ Clean filename handling
-- ✅ Good error handling
-
-### New Improvements
-1. **Parallel Processing**: Process multiple videos simultaneously
-2. **Batch Frame Extraction**: Extract multiple frames in single FFmpeg calls when possible
-3. **Optimized File I/O**: Reduced disk operations
-4. **Better Resource Management**: Configurable worker threads
-5. **Cross-platform Compatibility**: Works on Windows, macOS, and Linux
-
-### Performance Comparison
-- **Original**: Sequential processing, ~1 video at a time
-- **Improved**: Parallel processing, 2-8 videos simultaneously
-- **Expected speedup**: 2-4x faster on multi-core systems
-
-## 📁 Output Structure
-
-Extracted frames are saved with the following naming convention:
-```
-{clean_video_name}_{frame_number}.{extension}
-
-Examples:
-- MyVideo_001.png
-- MyVideo_002.png
-- Another_Clip_001.jpg
-```
-
-## 🔧 Configuration
-
-The GUI application automatically saves your settings to:
-- **Windows**: `%USERPROFILE%\.stills_exporter_config.json`
-- **macOS/Linux**: `~/.stills_exporter_config.json`
-
-## 🐛 Troubleshooting
-
-### "FFmpeg not found"
-- Ensure FFmpeg is installed and in your system PATH
-- Test by opening terminal/command prompt and typing: `ffmpeg -version`
-
-### "No video files found"
-- Check that your source folder contains supported video files
-- Supported formats: MP4, MOV, MKV, AVI, MTS, M2TS, WMV, WebM, 3GP, M4V
-
-### Application won't start
-- Ensure you have Python 3.7+ installed (if running from source)
-- Check that all dependencies are installed: `pip install -r requirements.txt`
-
-### Slow performance
-- Reduce the number of parallel workers if your system is struggling
-- Use JPG format instead of PNG for faster processing
-- Ensure your storage drive has sufficient free space
-
-## 📝 Project Structure
+## 📁 Project Structure
 
 ```
-stills-exporter/
-├── src/                        # Source code
-│   └── stills_exporter_gui.py  # Main GUI application
-├── scripts/                    # PowerShell scripts
-│   ├── export_stills.ps1       # Original PowerShell script
-│   └── improved_export_stills.ps1  # Improved script with parallel processing
-├── build/                      # Build scripts and tools
-│   ├── build_app.py            # Build script for creating executables
-│   ├── build_windows.bat       # Windows build helper
-│   └── build_mac.sh            # macOS build helper
-├── tests/                      # Test files
-│   └── test_app.py             # Test suite
-├── docs/                       # Documentation
-│   └── EFFICIENCY_ANALYSIS.md  # Performance analysis
-├── run.py                      # Main launcher script
-├── run.bat                     # Windows launcher
-├── requirements.txt            # Python dependencies
-├── LICENSE                     # MIT License
-├── CONTRIBUTING.md             # Contribution guidelines
-└── README.md                   # This file
+media-catalog/
+├── src/                          # Core application code
+│   ├── database.py               # SQLite catalog management
+│   ├── file_scanner.py           # Directory scanning & metadata extraction
+│   ├── media_catalog_gui.py      # Main GUI application (Sprint 2)
+│   ├── vision_tagger.py          # AI analysis (from stills-exporter)
+│   └── exif_embedder.py          # Metadata embedding (from stills-exporter)
+├── catalogs/                     # SQLite database files
+├── thumbnails/                   # Generated video thumbnails
+├── test_data/                    # Test videos/images (NeoFinder_Test)
+├── tests/                        # Test scripts
+│   └── test_catalog_foundation.py
+├── docs/                         # Documentation
+│   ├── DEVELOPMENT.md            # Development guide
+│   └── SPRINTS.md                # Sprint planning
+├── requirements.txt              # Python dependencies
+├── .gitignore                    # Git ignore rules
+└── README.md                     # This file
+```
+
+## 🏗️ Development Status
+
+### ✅ Sprint 1: Foundation & Database (COMPLETED)
+- Database schema with files, keywords, metadata tables
+- File scanner with FFmpeg integration
+- Basic search and keyword management
+- Test suite for foundation components
+
+### 🚧 Sprint 2: Basic GUI Framework (IN PROGRESS)
+- Main window with menu/toolbar
+- Catalog management (create/open)
+- File list display
+
+### 📋 Upcoming Sprints
+- Sprint 3: Search & Filter System
+- Sprint 4: Preview & Metadata Panel
+- Sprint 5: Tag Management Sidebar
+- Sprint 6: AI Analysis Integration
+- Sprint 7: Performance & Polish
+- Sprint 8: Advanced Features
+
+## 🧪 Testing
+
+### Test the Foundation
+```bash
+python test_catalog_foundation.py
+```
+
+### Test AI Features (if credentials available)
+```bash
+python test_ai_features.py
 ```
 
 ## 🤝 Contributing
 
-Feel free to submit issues, feature requests, or pull requests to improve the application.
+### Getting Started
+1. Make sure you have the test data folder (`NeoFinder_Test`) in the right location
+2. Run the foundation test to ensure everything works
+3. Check the current sprint status in `docs/SPRINTS.md`
+4. Pick up tasks from the current sprint
+
+### Development Workflow
+1. Create a feature branch: `git checkout -b feature/your-feature`
+2. Make changes and test thoroughly
+3. Update documentation if needed
+4. Create a pull request
+
+### Code Style
+- Follow PEP 8 for Python code
+- Use meaningful variable names
+- Add docstrings to classes and functions
+- Test your changes before committing
+
+## 📊 Architecture
+
+### Database Schema
+- **files**: Main file information (path, size, duration, etc.)
+- **keywords**: Unique keyword list
+- **file_keywords**: Many-to-many relationship between files and keywords
+- **metadata**: Additional file metadata and AI analysis results
+
+### AI Integration
+- Uses existing `VisionTagger` from stills-exporter project
+- Embeds keywords into video files using `ExifEmbedder`
+- Supports both mock and real Google Vision API analysis
+
+## 🔧 Configuration
+
+### Google Cloud Vision (Optional)
+1. Create a Google Cloud project
+2. Enable Vision API
+3. Create service account and download JSON credentials
+4. Set environment variable or configure in app
+
+### Test Data Setup
+The project expects test data in: `C:/Users/15073/Videos/NeoFinder_Test/`
+- Adjust paths in test files for your system
+- Or create symbolic links to your test data location
+
+## 📝 Notes for Collaborators
+
+### Current Focus
+We're building the core catalog functionality first, then adding the GUI layer. The AI analysis components already work from the stills-exporter project.
+
+### Key Files to Understand
+1. `src/database.py` - Core data management
+2. `src/file_scanner.py` - File discovery and metadata extraction
+3. `test_catalog_foundation.py` - Shows how everything fits together
+
+### Next Steps
+The immediate priority is Sprint 2: creating the basic GUI framework using tkinter (or potentially PyQt if we decide to upgrade).
+
+## 🐛 Troubleshooting
+
+### "FFmpeg not found"
+- Install FFmpeg and add to PATH
+- Test with: `ffmpeg -version`
+
+### "No test directory found"
+- Update paths in test files to match your system
+- Or create the expected directory structure
+
+### Database issues
+- Delete `catalogs/test_catalog.db` to reset
+- Check file permissions in the catalogs directory
 
 ## 📄 License
 
-This project is open source. Feel free to use, modify, and distribute as needed.
-
----
-
-**Note**: This application is a wrapper around FFmpeg. All video processing is performed by FFmpeg, which is a separate, powerful multimedia framework.
+MIT License - feel free to use and modify as needed.

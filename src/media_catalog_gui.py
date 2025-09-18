@@ -376,8 +376,8 @@ class MediaCatalogGUI:
         item = self.file_tree.item(selection[0])
         filename = item['text']
         
-        # Get full file info from database to show keywords
-        keywords_text = "No keywords"
+        # Get full file info from database to show real embedded keywords
+        keywords_text = "No embedded keywords"
         if self.current_catalog:
             files = self.current_catalog.search_files("")
             selected_file = None
@@ -387,12 +387,12 @@ class MediaCatalogGUI:
                     break
             
             if selected_file:
-                # Get keywords from database
-                keywords = selected_file.get('keywords', '')
+                # Get real embedded keywords from database
+                keywords = selected_file.get('keywords', [])
                 if keywords:
-                    if isinstance(keywords, str):
+                    if isinstance(keywords, str) and keywords.strip():
                         keywords_text = keywords
-                    else:
+                    elif isinstance(keywords, list) and keywords:
                         keywords_text = ', '.join(keywords)
                 
                 # Store current video path for playback
@@ -407,7 +407,7 @@ class MediaCatalogGUI:
                 self.current_video_path = None
                 self.play_button.config(state='disabled')
         
-        # Update info panel with keywords from database
+        # Update info panel with real embedded keywords
         self.info_text.delete(1.0, tk.END)
         self.info_text.insert(tk.END, f"Selected: {filename}\n\n")
         self.info_text.insert(tk.END, "File Details:\n")
@@ -680,6 +680,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

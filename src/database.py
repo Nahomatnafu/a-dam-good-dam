@@ -177,6 +177,19 @@ class CatalogDatabase:
         ''')
         return [dict(row) for row in cursor.fetchall()]
     
+    def get_file_id(self, filepath: str) -> Optional[int]:
+        """Get file ID by filepath"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT id FROM files WHERE filepath = ?', (filepath,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    
+    def clear_file_keywords(self, file_id: int):
+        """Clear all keywords for a file"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM file_keywords WHERE file_id = ?', (file_id,))
+        self.conn.commit()
+    
     def close(self):
         """Close database connection"""
         if self.conn:

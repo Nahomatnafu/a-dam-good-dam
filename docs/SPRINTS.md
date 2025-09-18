@@ -38,16 +38,44 @@
 
 ---
 
-### 📋 Sprint 3: Search & Filter System (PLANNED)
+### 🚧 Sprint 3: Enhanced Search & Polish (NEXT)
 **Duration**: Week 3  
-**Goal**: Core search functionality
+**Goal**: Advanced search capabilities and UI polish
 
 #### Planned Tasks:
-- [ ] Search bar implementation
-- [ ] Filter dropdowns (file type, date range)
-- [ ] Real-time search results
-- [ ] Search result highlighting
-- [ ] Performance optimization
+- [ ] **Advanced Search Panel**
+  - Filter by file type (video/image)
+  - Date range filtering (created/modified)
+  - Keyword combination search (AND/OR logic)
+  - Size range filtering
+
+- [ ] **Tag Management Sidebar**
+  - Interactive keyword list with usage counts
+  - Click to filter by keyword
+  - Add/remove keywords from selected files
+  - Keyword autocomplete
+
+- [ ] **Drag & Drop Support**
+  - Drag folders directly into the app
+  - Visual drop zones
+  - Progress feedback during scanning
+
+- [ ] **Keyboard Shortcuts**
+  - Ctrl+O (Open Catalog)
+  - Ctrl+N (New Catalog)
+  - Ctrl+R (Refresh Catalog)
+  - F5 (Refresh view)
+  - Delete (Remove selected files)
+
+- [ ] **Recent Catalogs Menu**
+  - Quick access to recently opened catalogs
+  - Persistent across sessions
+  - "Pin" favorite catalogs
+
+#### Deliverables:
+- Professional-grade search interface
+- Streamlined workflow with shortcuts
+- Enhanced user experience
 
 ---
 

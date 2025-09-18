@@ -41,6 +41,8 @@ class MediaCatalogGUI:
         file_menu.add_command(label="Open Catalog...", command=self.open_catalog)
         file_menu.add_command(label="Add Folder to Catalog...", command=self.add_folder_to_catalog)
         file_menu.add_separator()
+        file_menu.add_command(label="Refresh Catalog", command=self.refresh_catalog)
+        file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         
     def setup_toolbar(self):
@@ -50,6 +52,7 @@ class MediaCatalogGUI:
         ttk.Button(toolbar, text="New Catalog", command=self.new_catalog).pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar, text="Open Catalog", command=self.open_catalog).pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar, text="Add Folder", command=self.add_folder_to_catalog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="🔄 Refresh", command=self.refresh_catalog).pack(side=tk.LEFT, padx=5)
         
     def setup_three_panel_layout(self):
         # Main container
@@ -666,6 +669,70 @@ class MediaCatalogGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to show in explorer: {str(e)}")
 
+    def refresh_catalog(self):
+        """Refresh catalog by re-scanning all files and updating metadata"""
+        if not self.current_catalog:
+            messagebox.showwarning("No Catalog", "Please open a catalog first.")
+            return
+        
+        # Confirm with user
+        result = messagebox.askyesno(
+            "Refresh Catalog", 
+            "This will re-scan all files and update metadata.\nThis may take a while. Continue?"
+        )
+        
+        if not result:
+            return
+        
+        self.status_bar.config(text="Refreshing catalog...")
+        self.root.update()
+        
+        try:
+            # Get all files from database
+            all_files = self.current_catalog.search_files("")
+            total_files = len(all_files)
+            
+            updated_count = 0
+            for i, file_info in enumerate(all_files):
+                filepath = Path(file_info['filepath'])
+                
+                # Update status
+                self.status_bar.config(text=f"Refreshing {i+1}/{total_files}: {filepath.name}")
+                self.root.update()
+                
+                if filepath.exists():
+                    # Get fresh file info with real embedded metadata
+                    if file_info.get('file_type') == 'video':
+                        fresh_info = self.scanner.get_video_info(filepath)
+                    else:
+                        fresh_info = self.scanner._extract_file_info(filepath)
+                    
+                    if fresh_info:
+                        # Update database with fresh info
+                        self.current_catalog.add_file(fresh_info)
+                        
+                        # Update keywords if they exist
+                        if fresh_info.get('keywords'):
+                            file_id = self.current_catalog.get_file_id(fresh_info['filepath'])
+                            if file_id:
+                                # Clear old keywords and add new ones
+                                self.current_catalog.clear_file_keywords(file_id)
+                                self.current_catalog.add_keywords_to_file(
+                                    file_id, fresh_info['keywords'], source='embedded'
+                                )
+                        
+                        updated_count += 1
+            
+            # Refresh the display
+            self.load_catalog_files()
+            
+            self.status_bar.config(text=f"Catalog refreshed! Updated {updated_count} files.")
+            messagebox.showinfo("Refresh Complete", f"Successfully refreshed {updated_count} files.")
+            
+        except Exception as e:
+            self.status_bar.config(text="Refresh failed")
+            messagebox.showerror("Refresh Error", f"Error refreshing catalog: {str(e)}")
+
 def main():
     root = tk.Tk()
     app = MediaCatalogGUI(root)
@@ -680,6 +747,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
 
 
 

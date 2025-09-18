@@ -2,9 +2,11 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from pathlib import Path
 import sys
+import json
 sys.path.append('.')
 from src.database import CatalogDatabase
 from src.file_scanner import FileScanner
+from src.thumbnail_generator import ThumbnailGenerator
 
 class MediaCatalogGUI:
     def __init__(self, root):
@@ -15,11 +17,16 @@ class MediaCatalogGUI:
         # Initialize backend components
         self.current_catalog = None
         self.scanner = FileScanner()
+        self.thumbnail_generator = ThumbnailGenerator()
+        self.config_file = Path("config.json")
         
         self.setup_menu_bar()
         self.setup_toolbar()
         self.setup_three_panel_layout()
         self.setup_status_bar()
+        
+        # Load previous session
+        self.load_session()
 
     def setup_menu_bar(self):
         menubar = tk.Menu(self.root)
@@ -47,18 +54,22 @@ class MediaCatalogGUI:
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Create three-panel layout
+        # Create three-panel layout with resizable panes
         main_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True)
         
-        # LEFT PANEL: Library/Catalogs
+        # LEFT PANEL: Library/Catalogs (weight=1, min width)
         self.setup_library_panel(main_paned)
         
-        # MIDDLE PANEL: File list
-        self.setup_file_list_panel(main_paned)
+        # MIDDLE PANEL: File list (weight=2, larger default)
+        self.setup_files_panel(main_paned)
         
-        # RIGHT PANEL: Preview/Info
+        # RIGHT PANEL: Preview/Info (weight=1, resizable)
         self.setup_info_panel(main_paned)
+        
+        # Set initial pane sizes (optional - user can resize)
+        self.root.after(100, lambda: main_paned.sashpos(0, 250))  # Left panel width
+        self.root.after(100, lambda: main_paned.sashpos(1, 700))  # Middle panel width
 
     def setup_library_panel(self, parent):
         # Left panel for catalogs/library
@@ -78,60 +89,51 @@ class MediaCatalogGUI:
         # Bind catalog selection
         self.catalog_tree.bind('<<TreeviewSelect>>', self.on_catalog_select)
 
-    def setup_file_list_panel(self, parent):
+    def setup_files_panel(self, parent):
         # Middle panel for file list
         middle_frame = ttk.Frame(parent)
-        parent.add(middle_frame, weight=3)
+        parent.add(middle_frame, weight=2)
         
-        # File list header with view options
-        header_frame = ttk.Frame(middle_frame)
-        header_frame.pack(fill=tk.X, pady=5)
+        # Files header with view options
+        files_header = ttk.Frame(middle_frame)
+        files_header.pack(fill=tk.X, pady=5)
         
-        ttk.Label(header_frame, text="Files", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
+        ttk.Label(files_header, text="Files", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
         
-        # Search box
-        search_frame = ttk.Frame(header_frame)
-        search_frame.pack(side=tk.LEFT, padx=20)
-        ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT)
-        self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=20)
-        self.search_entry.pack(side=tk.LEFT, padx=5)
-        self.search_entry.bind('<KeyRelease>', self.on_search)
-        
-        # View mode buttons
-        view_frame = ttk.Frame(header_frame)
+        # View toggle buttons
+        view_frame = ttk.Frame(files_header)
         view_frame.pack(side=tk.RIGHT)
-        ttk.Button(view_frame, text="List", width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Button(view_frame, text="Grid", width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Button(view_frame, text="List", width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(view_frame, text="Grid", width=8).pack(side=tk.LEFT)
         
-        # File list
-        columns = ('filename', 'size', 'type', 'keywords')
+        # File tree
+        columns = ('Name', 'Size', 'Type', 'Keywords')
         self.file_tree = ttk.Treeview(middle_frame, columns=columns, show='tree headings')
         
         # Configure columns
         self.file_tree.heading('#0', text='Name')
-        self.file_tree.heading('filename', text='Filename')
-        self.file_tree.heading('size', text='Size')
-        self.file_tree.heading('type', text='Type')
-        self.file_tree.heading('keywords', text='Keywords')
+        self.file_tree.heading('Name', text='Filename')
+        self.file_tree.heading('Size', text='Size')
+        self.file_tree.heading('Type', text='Type')
+        self.file_tree.heading('Keywords', text='Keywords')
         
         # Column widths
         self.file_tree.column('#0', width=200)
-        self.file_tree.column('filename', width=150)
-        self.file_tree.column('size', width=80)
-        self.file_tree.column('type', width=80)
-        self.file_tree.column('keywords', width=200)
-        
-        # Scrollbar for file list
-        file_scrollbar = ttk.Scrollbar(middle_frame, orient=tk.VERTICAL, command=self.file_tree.yview)
-        self.file_tree.configure(yscrollcommand=file_scrollbar.set)
-        
-        # Pack file list
-        self.file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        file_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.file_tree.column('Name', width=200)
+        self.file_tree.column('Size', width=80)
+        self.file_tree.column('Type', width=80)
+        self.file_tree.column('Keywords', width=200)
         
         # Bind selection event
         self.file_tree.bind('<<TreeviewSelect>>', self.on_file_select)
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(middle_frame, orient=tk.VERTICAL, command=self.file_tree.yview)
+        self.file_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack tree and scrollbar
+        self.file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
     def setup_info_panel(self, parent):
         # Right panel for preview/info
@@ -141,20 +143,21 @@ class MediaCatalogGUI:
         # Info header
         ttk.Label(right_frame, text="File Info", font=("Arial", 12, "bold")).pack(pady=5)
         
-        # Preview area (placeholder)
+        # Preview area - make it expandable
         preview_frame = ttk.LabelFrame(right_frame, text="Preview")
-        preview_frame.pack(fill=tk.X, padx=5, pady=5)
+        preview_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Use regular tk.Label for background and height options
-        tk.Label(preview_frame, text="Thumbnail\n(Coming Soon)", 
-                 background="lightgray", width=20, height=8).pack(pady=10)
+        # Thumbnail label - larger and expandable
+        self.thumbnail_label = tk.Label(preview_frame, text="Select a video\nto see thumbnail", 
+                                       background="lightgray", width=25, height=15)
+        self.thumbnail_label.pack(pady=10, fill=tk.BOTH, expand=True)
         
-        # Metadata area
+        # Metadata area - smaller, fixed size
         info_frame = ttk.LabelFrame(right_frame, text="Metadata")
-        info_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        info_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # Metadata text widget
-        self.info_text = tk.Text(info_frame, wrap=tk.WORD, height=10)
+        # Metadata text widget - smaller height
+        self.info_text = tk.Text(info_frame, wrap=tk.WORD, height=8)
         info_scrollbar = ttk.Scrollbar(info_frame, orient=tk.VERTICAL, command=self.info_text.yview)
         self.info_text.configure(yscrollcommand=info_scrollbar.set)
         
@@ -175,10 +178,11 @@ class MediaCatalogGUI:
             
             self.current_catalog = CatalogDatabase(catalog_path)
             self.status_bar.config(text=f"Catalog created: {catalog_name}")
+            self.save_session()  # Save the new catalog
             
             # Add to library tree
             self.catalog_tree.insert('', 'end', text=f"📊 {catalog_name}", values=[str(catalog_path)])
-        
+
     def open_catalog(self):
         filename = filedialog.askopenfilename(
             title="Open Catalog",
@@ -192,10 +196,11 @@ class MediaCatalogGUI:
                 catalog_name = Path(filename).stem
                 self.status_bar.config(text=f"Opened catalog: {catalog_name}")
                 self.load_catalog_files()
-                self.load_catalog_structure()  # Add this line
+                self.load_catalog_structure()
+                self.save_session()  # Save the opened catalog
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to open catalog: {str(e)}")
-        
+
     def add_folder_to_catalog(self):
         if not self.current_catalog:
             messagebox.showwarning("Warning", "Please create or open a catalog first")
@@ -357,6 +362,56 @@ class MediaCatalogGUI:
         self.info_text.insert(tk.END, f"Size: {item['values'][1]}\n")
         self.info_text.insert(tk.END, f"Type: {item['values'][2]}\n")
         self.info_text.insert(tk.END, f"Keywords: {item['values'][3]}\n")
+        
+        # Generate thumbnail for video files
+        if self.current_catalog and item['values'][2] == 'video':
+            files = self.current_catalog.search_files("")
+            selected_file = None
+            for file_info in files:
+                if file_info['filename'] == filename:
+                    selected_file = file_info
+                    break
+            
+            if selected_file:
+                self.generate_and_show_thumbnail(selected_file['filepath'])
+        else:
+            self.thumbnail_label.config(text="Select a video\nto see thumbnail", image="")
+
+    def generate_and_show_thumbnail(self, video_path):
+        """Generate and display thumbnail for video"""
+        try:
+            self.thumbnail_label.config(text="Generating\nthumbnail...")
+            self.root.update()
+            
+            thumb_path = self.thumbnail_generator.generate_thumbnail(video_path, size="320x240")
+            
+            if thumb_path and thumb_path.exists():
+                # Load and display thumbnail
+                from PIL import Image, ImageTk
+                img = Image.open(thumb_path)
+                
+                # Scale to fit the label while maintaining aspect ratio
+                label_width = self.thumbnail_label.winfo_width()
+                label_height = self.thumbnail_label.winfo_height()
+                
+                if label_width > 1 and label_height > 1:  # Label has been rendered
+                    img.thumbnail((label_width-20, label_height-20), Image.Resampling.LANCZOS)
+                else:
+                    img.thumbnail((300, 200), Image.Resampling.LANCZOS)  # Default size
+                
+                photo = ImageTk.PhotoImage(img)
+                
+                self.thumbnail_label.config(image=photo, text="")
+                self.thumbnail_label.image = photo  # Keep reference
+            else:
+                self.thumbnail_label.config(text="Thumbnail\ngeneration failed", image="")
+                
+        except ImportError:
+            # Fallback if PIL not available
+            self.thumbnail_label.config(text=f"Thumbnail generated:\n{Path(video_path).name}", image="")
+        except Exception as e:
+            self.thumbnail_label.config(text=f"Error:\n{str(e)[:20]}...", image="")
+            print(f"Thumbnail error: {e}")
 
     def on_search(self, event=None):
         """Handle search input"""
@@ -500,13 +555,51 @@ class MediaCatalogGUI:
         except Exception as e:
             print(f"Error filtering by folder: {e}")
 
+    def load_session(self):
+        """Load previous session settings"""
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, 'r') as f:
+                    config = json.load(f)
+                    
+                last_catalog = config.get('last_catalog')
+                if last_catalog and Path(last_catalog).exists():
+                    self.current_catalog = CatalogDatabase(Path(last_catalog))
+                    self.load_catalog_files()
+                    self.load_catalog_structure()
+                    catalog_name = Path(last_catalog).stem
+                    self.status_bar.config(text=f"Restored catalog: {catalog_name}")
+        except Exception as e:
+            print(f"Error loading session: {e}")
+
+    def save_session(self):
+        """Save current session settings"""
+        try:
+            config = {}
+            if self.current_catalog:
+                config['last_catalog'] = str(self.current_catalog.catalog_path)
+            
+            with open(self.config_file, 'w') as f:
+                json.dump(config, f)
+        except Exception as e:
+            print(f"Error saving session: {e}")
+
 def main():
     root = tk.Tk()
     app = MediaCatalogGUI(root)
+    
+    # Save session on close
+    def on_closing():
+        app.save_session()
+        root.destroy()
+    
+    root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

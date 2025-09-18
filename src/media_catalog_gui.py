@@ -3,6 +3,8 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 from pathlib import Path
 import sys
 import json
+import subprocess
+import threading
 sys.path.append('.')
 from src.database import CatalogDatabase
 from src.file_scanner import FileScanner
@@ -22,7 +24,7 @@ class MediaCatalogGUI:
         
         self.setup_menu_bar()
         self.setup_toolbar()
-        self.setup_three_panel_layout()
+        self.setup_three_panel_layout()  # This line is crucial!
         self.setup_status_bar()
         
         # Load previous session
@@ -58,6 +60,9 @@ class MediaCatalogGUI:
         main_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True)
         
+        # Store reference to main_paned for later use
+        self.main_paned = main_paned
+        
         # LEFT PANEL: Library/Catalogs (weight=1, min width)
         self.setup_library_panel(main_paned)
         
@@ -67,9 +72,25 @@ class MediaCatalogGUI:
         # RIGHT PANEL: Preview/Info (weight=1, resizable)
         self.setup_info_panel(main_paned)
         
-        # Set initial pane sizes (optional - user can resize)
-        self.root.after(100, lambda: main_paned.sashpos(0, 250))  # Left panel width
-        self.root.after(100, lambda: main_paned.sashpos(1, 700))  # Middle panel width
+        # Set initial pane sizes with longer delay and error handling
+        self.root.after(200, self.set_initial_pane_sizes)
+        
+    def set_initial_pane_sizes(self):
+        """Set initial pane sizes with error handling"""
+        try:
+            if hasattr(self, 'main_paned'):
+                # Force update to ensure widgets are rendered
+                self.root.update_idletasks()
+                
+                # Set pane positions
+                self.main_paned.sashpos(0, 250)  # Left panel width
+                self.main_paned.sashpos(1, 700)  # Middle panel width
+                
+                # Schedule another update to ensure it sticks
+                self.root.after(100, lambda: self.main_paned.sashpos(0, 250))
+                self.root.after(100, lambda: self.main_paned.sashpos(1, 700))
+        except Exception as e:
+            print(f"Error setting pane sizes: {e}")
 
     def setup_library_panel(self, parent):
         # Left panel for catalogs/library
@@ -106,8 +127,8 @@ class MediaCatalogGUI:
         ttk.Button(view_frame, text="List", width=8).pack(side=tk.LEFT, padx=2)
         ttk.Button(view_frame, text="Grid", width=8).pack(side=tk.LEFT)
         
-        # File tree
-        columns = ('Name', 'Size', 'Type', 'Keywords')
+        # File tree - removed Keywords column
+        columns = ('Name', 'Size', 'Type')
         self.file_tree = ttk.Treeview(middle_frame, columns=columns, show='tree headings')
         
         # Configure columns
@@ -115,14 +136,12 @@ class MediaCatalogGUI:
         self.file_tree.heading('Name', text='Filename')
         self.file_tree.heading('Size', text='Size')
         self.file_tree.heading('Type', text='Type')
-        self.file_tree.heading('Keywords', text='Keywords')
         
-        # Column widths
-        self.file_tree.column('#0', width=200)
-        self.file_tree.column('Name', width=200)
-        self.file_tree.column('Size', width=80)
-        self.file_tree.column('Type', width=80)
-        self.file_tree.column('Keywords', width=200)
+        # Column widths - redistributed space
+        self.file_tree.column('#0', width=250)
+        self.file_tree.column('Name', width=250)
+        self.file_tree.column('Size', width=100)
+        self.file_tree.column('Type', width=100)
         
         # Bind selection event
         self.file_tree.bind('<<TreeviewSelect>>', self.on_file_select)
@@ -147,10 +166,22 @@ class MediaCatalogGUI:
         preview_frame = ttk.LabelFrame(right_frame, text="Preview")
         preview_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
+        # Video controls
+        controls_frame = ttk.Frame(preview_frame)
+        controls_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.play_button = ttk.Button(controls_frame, text="▶ Play", command=self.play_video)
+        self.play_button.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(controls_frame, text="📁 Show in Explorer", command=self.show_in_explorer).pack(side=tk.LEFT, padx=5)
+        
         # Thumbnail label - larger and expandable
         self.thumbnail_label = tk.Label(preview_frame, text="Select a video\nto see thumbnail", 
                                        background="lightgray", width=25, height=15)
         self.thumbnail_label.pack(pady=10, fill=tk.BOTH, expand=True)
+        
+        # Current video path for playback
+        self.current_video_path = None
         
         # Metadata area - smaller, fixed size
         info_frame = ttk.LabelFrame(right_frame, text="Metadata")
@@ -305,10 +336,9 @@ class MediaCatalogGUI:
             return
         
         try:
-            # Use search_files with empty query to get all files
             files = self.current_catalog.search_files("")
             
-            if not files:  # Handle empty list, not None
+            if not files:
                 print("No files found in catalog")
                 self.status_bar.config(text="No files found in catalog")
                 return
@@ -316,25 +346,17 @@ class MediaCatalogGUI:
             print(f"Found {len(files)} files in catalog")
             
             for file_info in files:
-                # Handle the case where keywords might be a string, not a list
-                keywords = file_info.get('keywords', '')
-                if isinstance(keywords, str):
-                    keywords_display = keywords[:50] + "..." if len(keywords) > 50 else keywords
-                else:
-                    keywords_display = ', '.join(keywords[:3]) if keywords else ''
-                
                 # Calculate size in MB
                 filesize = file_info.get('filesize') or file_info.get('file_size', 0)
                 size_mb = filesize / (1024 * 1024) if filesize else 0
                 
-                # Insert file into tree
+                # Insert file into tree - removed keywords
                 self.file_tree.insert('', 'end', 
                                     text=file_info['filename'],
                                     values=(
                                         file_info['filename'],
                                         f"{size_mb:.1f} MB",
-                                        file_info.get('file_type', 'unknown'),
-                                        keywords_display
+                                        file_info.get('file_type', 'unknown')
                                     ))
                                     
             self.status_bar.config(text=f"Loaded {len(files)} files")
@@ -354,17 +376,9 @@ class MediaCatalogGUI:
         item = self.file_tree.item(selection[0])
         filename = item['text']
         
-        # Update info panel
-        self.info_text.delete(1.0, tk.END)
-        self.info_text.insert(tk.END, f"Selected: {filename}\n\n")
-        self.info_text.insert(tk.END, "File Details:\n")
-        self.info_text.insert(tk.END, f"Name: {item['values'][0]}\n")
-        self.info_text.insert(tk.END, f"Size: {item['values'][1]}\n")
-        self.info_text.insert(tk.END, f"Type: {item['values'][2]}\n")
-        self.info_text.insert(tk.END, f"Keywords: {item['values'][3]}\n")
-        
-        # Generate thumbnail for video files
-        if self.current_catalog and item['values'][2] == 'video':
+        # Get full file info from database to show keywords
+        keywords_text = "No keywords"
+        if self.current_catalog:
             files = self.current_catalog.search_files("")
             selected_file = None
             for file_info in files:
@@ -373,9 +387,34 @@ class MediaCatalogGUI:
                     break
             
             if selected_file:
-                self.generate_and_show_thumbnail(selected_file['filepath'])
-        else:
-            self.thumbnail_label.config(text="Select a video\nto see thumbnail", image="")
+                # Get keywords from database
+                keywords = selected_file.get('keywords', '')
+                if keywords:
+                    if isinstance(keywords, str):
+                        keywords_text = keywords
+                    else:
+                        keywords_text = ', '.join(keywords)
+                
+                # Store current video path for playback
+                self.current_video_path = selected_file['filepath']
+                if selected_file.get('file_type') == 'video':
+                    self.play_button.config(state='normal')
+                    self.generate_and_show_thumbnail(selected_file['filepath'])
+                else:
+                    self.play_button.config(state='disabled')
+                    self.thumbnail_label.config(text="Select a video\nto see thumbnail", image="")
+            else:
+                self.current_video_path = None
+                self.play_button.config(state='disabled')
+        
+        # Update info panel with keywords from database
+        self.info_text.delete(1.0, tk.END)
+        self.info_text.insert(tk.END, f"Selected: {filename}\n\n")
+        self.info_text.insert(tk.END, "File Details:\n")
+        self.info_text.insert(tk.END, f"Name: {item['values'][0]}\n")
+        self.info_text.insert(tk.END, f"Size: {item['values'][1]}\n")
+        self.info_text.insert(tk.END, f"Type: {item['values'][2]}\n")
+        self.info_text.insert(tk.END, f"Keywords: {keywords_text}\n")
 
     def generate_and_show_thumbnail(self, video_path):
         """Generate and display thumbnail for video"""
@@ -434,22 +473,16 @@ class MediaCatalogGUI:
             files = self.current_catalog.search_files(query)
             
             for file_info in files:
-                keywords = file_info.get('keywords', '')
-                if isinstance(keywords, str):
-                    keywords_display = keywords[:50] + "..." if len(keywords) > 50 else keywords
-                else:
-                    keywords_display = ', '.join(keywords[:3]) if keywords else ''
-                
                 filesize = file_info.get('filesize') or file_info.get('file_size', 0)
                 size_mb = filesize / (1024 * 1024) if filesize else 0
                 
+                # Insert file into tree - removed keywords
                 self.file_tree.insert('', 'end', 
                                     text=file_info['filename'],
                                     values=(
                                         file_info['filename'],
                                         f"{size_mb:.1f} MB",
-                                        file_info.get('file_type', 'unknown'),
-                                        keywords_display
+                                        file_info.get('file_type', 'unknown')
                                     ))
             
             self.status_bar.config(text=f"Found {len(files)} files")
@@ -584,6 +617,55 @@ class MediaCatalogGUI:
         except Exception as e:
             print(f"Error saving session: {e}")
 
+    def play_video(self):
+        """Play the selected video in default player"""
+        if not self.current_video_path:
+            return
+        
+        video_path = Path(self.current_video_path)
+        if not video_path.exists():
+            messagebox.showerror("Error", f"Video file not found: {video_path}")
+            return
+        
+        try:
+            # Cross-platform video playback
+            if sys.platform == "win32":
+                subprocess.run(['start', str(video_path)], shell=True, check=True)
+            elif sys.platform == "darwin":  # macOS
+                subprocess.run(['open', str(video_path)], check=True)
+            else:  # Linux
+                subprocess.run(['xdg-open', str(video_path)], check=True)
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to play video: {str(e)}")
+
+    def show_in_explorer(self):
+        """Show the selected file in file explorer"""
+        if not self.current_video_path:
+            return
+        
+        video_path = Path(self.current_video_path)
+        if not video_path.exists():
+            messagebox.showerror("Error", f"File not found: {video_path}")
+            return
+        
+        try:
+            if sys.platform == "win32":
+                # Try explorer /select first, fallback to folder open
+                try:
+                    subprocess.run(['explorer', '/select,', str(video_path)], check=True)
+                except subprocess.CalledProcessError:
+                    # Fallback: just open the folder
+                    import os
+                    os.startfile(str(video_path.parent))
+            elif sys.platform == "darwin":  # macOS
+                subprocess.run(['open', '-R', str(video_path)], check=True)
+            else:  # Linux
+                subprocess.run(['xdg-open', str(video_path.parent)], check=True)
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to show in explorer: {str(e)}")
+
 def main():
     root = tk.Tk()
     app = MediaCatalogGUI(root)
@@ -598,8 +680,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
 

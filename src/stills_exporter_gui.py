@@ -15,14 +15,15 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import shutil
 try:
-    from vision_tagger import VisionTagger, VISION_AVAILABLE
+    from vision_tagger import VisionTagger, VISION_AVAILABLE, LANGCHAIN_AVAILABLE
 except ImportError:
     try:
-        from src.vision_tagger import VisionTagger, VISION_AVAILABLE
+        from src.vision_tagger import VisionTagger, VISION_AVAILABLE, LANGCHAIN_AVAILABLE
     except ImportError:
         VISION_AVAILABLE = False
+        LANGCHAIN_AVAILABLE = False
         class VisionTagger:
-            def __init__(self, *args): pass
+            def __init__(self, *args, **kwargs): pass
 
 try:
     from exif_embedder import ExifEmbedder
@@ -33,13 +34,24 @@ except ImportError:
         class ExifEmbedder:
             def __init__(self): self.exiftool_available = False
 
+try:
+    from training_manager import TrainingManager
+except ImportError:
+    try:
+        from src.training_manager import TrainingManager
+    except ImportError:
+        class TrainingManager:
+            def __init__(self, *args): pass
+            def get_api_key(self): return ""
+            def get_training_examples(self, *args): return []
+
 class StillsExporterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Stills Exporter")
         self.root.geometry("600x500")
         self.root.resizable(True, True)
-        
+
         # Variables
         self.source_folder = tk.StringVar()
         self.output_folder = tk.StringVar()
@@ -48,16 +60,19 @@ class StillsExporterGUI:
         self.enable_ai_tagging = tk.BooleanVar(value=False)
         self.embed_metadata = tk.BooleanVar(value=False)
         self.vision_credentials = tk.StringVar()
-        
+
         # Settings file path
         self.settings_file = Path.home() / ".stills_exporter_config.json"
-        
+
+        # Initialize training manager
+        self.training_manager = TrainingManager()
+
         # Check for ffmpeg
         self.ffmpeg_available = self.check_ffmpeg()
-        
+
         self.setup_ui()
         self.load_settings()
-        
+
         # Auto-detect credentials after UI is set up
         self.auto_detect_credentials()
         if self.vision_credentials.get():
@@ -206,30 +221,37 @@ class StillsExporterGUI:
         
     def setup_ai_section(self, parent):
         """Setup AI tagging section"""
-        ai_frame = ttk.LabelFrame(parent, text="AI Features", padding="10")
+        ai_frame = ttk.LabelFrame(parent, text="AI Features (LangChain + Gemini)", padding="10")
         ai_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(10, 0))
         ai_frame.columnconfigure(1, weight=1)
-        
+
         # Enable AI tagging
-        ttk.Checkbutton(ai_frame, text="Enable AI Tagging (Google Vision)", 
+        ttk.Checkbutton(ai_frame, text="Enable AI Tagging with Few-Shot Learning",
                        variable=self.enable_ai_tagging,
-                       command=self.on_ai_toggle).grid(row=0, column=0, columnspan=2, sticky=tk.W)
-        
-        # Credentials path
-        ttk.Label(ai_frame, text="Credentials JSON:").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
-        ttk.Entry(ai_frame, textvariable=self.vision_credentials, 
-                 width=40).grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(5, 0), pady=(5, 0))
-        ttk.Button(ai_frame, text="Browse", 
-                  command=self.browse_credentials).grid(row=1, column=2, padx=(5, 0), pady=(5, 0))
-        
+                       command=self.on_ai_toggle).grid(row=0, column=0, columnspan=3, sticky=tk.W)
+
+        # Training examples info (using max 3 per category for efficiency)
+        training_examples = self.training_manager.get_training_examples(max_per_category=3)
+        training_info = ttk.Label(ai_frame,
+                                 text=f"Training examples: {len(training_examples)} (3 per category for speed)",
+                                 foreground="blue")
+        training_info.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+
+        # Show categories
+        categories = self.training_manager.list_categories()
+        if categories:
+            cat_text = "Categories: " + ", ".join(categories)
+            ttk.Label(ai_frame, text=cat_text, foreground="gray").grid(
+                row=2, column=0, columnspan=3, sticky=tk.W, pady=(2, 0))
+
         # Embed metadata
-        ttk.Checkbutton(ai_frame, text="Embed metadata into videos (ExifTool)", 
-                       variable=self.embed_metadata).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
-        
+        ttk.Checkbutton(ai_frame, text="Embed metadata into videos (ExifTool)",
+                       variable=self.embed_metadata).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
+
         # Status
         self.ai_status = ttk.Label(ai_frame, text="", foreground="gray")
-        self.ai_status.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
-        
+        self.ai_status.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+
         self.update_ai_status()
 
     def auto_detect_credentials(self):
@@ -253,26 +275,35 @@ class StillsExporterGUI:
 
     def update_ai_status(self):
         """Update AI status display"""
-        if not VISION_AVAILABLE:
-            self.ai_status.config(text="⚠️ Google Vision library not installed", 
-                                 foreground="orange")
-        elif not self.enable_ai_tagging.get():
+        if not self.enable_ai_tagging.get():
             self.ai_status.config(text="AI tagging disabled", foreground="gray")
-        elif not self.vision_credentials.get():
-            self.ai_status.config(text="⚠️ No credentials file selected", foreground="orange")
-        else:
-            # Test credentials
-            try:
-                from vision_tagger import VisionTagger
-                tagger = VisionTagger(self.vision_credentials.get())
-                if tagger.mock_mode:
-                    self.ai_status.config(text="⚠️ Credentials invalid - using mock mode", 
-                                         foreground="orange")
-                else:
-                    self.ai_status.config(text="✓ AI tagging ready", foreground="green")
-            except Exception as e:
-                self.ai_status.config(text=f"⚠️ Credentials error: {str(e)[:50]}...", 
-                                     foreground="red")
+            return
+
+        # Check for API key
+        api_key = self.training_manager.get_api_key()
+        if not api_key:
+            self.ai_status.config(text="⚠️ No Google API key configured in config/ai_config.json",
+                                 foreground="orange")
+            return
+
+        # Check if LangChain is available
+        try:
+            from vision_tagger import LANGCHAIN_AVAILABLE
+            if LANGCHAIN_AVAILABLE:
+                # Show optimized count (3 per category)
+                training_count = len(self.training_manager.get_training_examples(max_per_category=3))
+                self.ai_status.config(
+                    text=f"✓ LangChain + Gemini ready | Using {training_count} examples (optimized)",
+                    foreground="green")
+            elif VISION_AVAILABLE:
+                self.ai_status.config(text="✓ Using legacy Google Vision API",
+                                     foreground="blue")
+            else:
+                self.ai_status.config(text="⚠️ No AI libraries available - using mock mode",
+                                     foreground="orange")
+        except Exception as e:
+            self.ai_status.config(text=f"⚠️ Error: {str(e)[:50]}...",
+                                 foreground="red")
 
     def browse_credentials(self):
         """Browse for Google Cloud credentials JSON"""
@@ -476,14 +507,29 @@ class StillsExporterGUI:
                 
             try:
                 self.log_message(f"Analyzing {extracted_count} frames for {video_path.name}...")
-                self.log_message(f"Using credentials: {self.vision_credentials.get()}")
-                
-                vision_tagger = VisionTagger(self.vision_credentials.get() or None)
-                
-                if vision_tagger.mock_mode:
+
+                # Get API key and training examples (max 3 per category for efficiency)
+                api_key = self.training_manager.get_api_key()
+                training_examples = self.training_manager.get_training_examples(max_per_category=3)
+
+                if training_examples:
+                    self.log_message(f"Using {len(training_examples)} training examples (3 per category for speed)")
+                    for ex in training_examples:
+                        self.log_message(f"  - {ex['label']}: {Path(ex['image_path']).name}")
+
+                # Initialize tagger with training examples
+                vision_tagger = VisionTagger(
+                    credentials_path=self.vision_credentials.get() or None,
+                    api_key=api_key,
+                    training_examples=training_examples
+                )
+
+                if vision_tagger.langchain_tagger:
+                    self.log_message("✓ Using LangChain + Gemini for AI tagging")
+                elif vision_tagger.mock_mode:
                     self.log_message("⚠️ Vision tagger in mock mode - check credentials")
                 else:
-                    self.log_message("✓ Vision tagger initialized successfully")
+                    self.log_message("✓ Using legacy Google Vision API")
                 
                 # Get all extracted images
                 image_files = list(clip_stills_folder.glob(f"{base_name}_*.{image_format}"))

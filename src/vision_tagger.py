@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Google Vision API integration for automatic image tagging
+AI-powered image tagging using LangChain and Google Gemini
 """
 
 import os
@@ -10,6 +10,14 @@ from pathlib import Path
 from typing import List, Dict, Optional
 import logging
 
+# Try to import the new LangChain-based tagger
+try:
+    from ctagger import ImageTagger
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+
+# Legacy Google Vision support
 try:
     from google.cloud import vision
     VISION_AVAILABLE = True
@@ -17,18 +25,42 @@ except ImportError:
     VISION_AVAILABLE = False
 
 class VisionTagger:
-    def __init__(self, credentials_path: Optional[str] = None):
+    def __init__(self, credentials_path: Optional[str] = None, api_key: Optional[str] = None,
+                 training_examples: Optional[List[Dict[str, str]]] = None):
+        """
+        Initialize the tagger with either LangChain (preferred) or legacy Google Vision.
+
+        Args:
+            credentials_path: Path to Google Cloud credentials (for legacy Vision API)
+            api_key: Google API key for Gemini (for LangChain tagger)
+            training_examples: List of training examples for few-shot learning
+                              Format: [{'image_path': 'path/to/image.jpg', 'label': 'person name'}]
+        """
         self.client = None
+        self.langchain_tagger = None
         self.mock_mode = False
-        
+        self.training_examples = training_examples or []
+
+        # Try LangChain tagger first (preferred)
+        if LANGCHAIN_AVAILABLE and api_key:
+            try:
+                os.environ["GOOGLE_API_KEY"] = api_key
+                self.langchain_tagger = ImageTagger()
+                print("✅ Using LangChain + Gemini for AI tagging")
+                return
+            except Exception as e:
+                print(f"⚠️ LangChain tagger failed: {e}")
+
+        # Fall back to legacy Google Vision
         if VISION_AVAILABLE:
             try:
                 self.setup_client(credentials_path)
+                print("✅ Using legacy Google Vision API")
             except Exception as e:
                 print(f"⚠️ Vision client failed, using mock mode: {e}")
                 self.mock_mode = True
         else:
-            print("📝 Using mock analysis (Google Vision not available)")
+            print("📝 Using mock analysis (no AI libraries available)")
             self.mock_mode = True
     
     def setup_client(self, credentials_path: Optional[str] = None):
@@ -48,26 +80,43 @@ class VisionTagger:
         """Analyze single image and return tags"""
         if self.mock_mode:
             return self.mock_analyze_image(image_path)
-        
+
+        # Use LangChain tagger if available
+        if self.langchain_tagger:
+            try:
+                result = self.langchain_tagger.tag(str(image_path), self.training_examples)
+                # Convert to compatible format
+                tags = result.tags if hasattr(result, 'tags') else result.get('tags', [])
+                return {
+                    'labels': [{'description': tag, 'score': 0.95} for tag in tags],
+                    'text': [],
+                    'faces_count': 0,
+                    'image_path': str(image_path)
+                }
+            except Exception as e:
+                print(f"⚠️ LangChain tagging failed for {image_path.name}: {e}")
+                return self.mock_analyze_image(image_path)
+
+        # Fall back to legacy Google Vision
         try:
             # Real Google Vision analysis
             with open(image_path, 'rb') as image_file:
                 content = image_file.read()
-                
+
             image = vision.Image(content=content)
-            
+
             # Get labels, text, faces...
             labels_response = self.client.label_detection(image=image)
             labels = labels_response.label_annotations
-            
+
             text_response = self.client.text_detection(image=image)
             texts = text_response.text_annotations
-            
+
             faces_response = self.client.face_detection(image=image)
             faces = faces_response.face_annotations
-            
+
             return {
-                'labels': [{'description': label.description, 'score': label.score} 
+                'labels': [{'description': label.description, 'score': label.score}
                           for label in labels],
                 'text': [text.description for text in texts] if texts else [],
                 'faces_count': len(faces),

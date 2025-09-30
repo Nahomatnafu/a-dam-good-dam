@@ -1,0 +1,57 @@
+{
+  "google_api_key": "AIzaSyBcEffoHhNRLKmurbqJZY0_tFiVtjc__Bg",
+  "training_examples": {
+    "president_inch": {
+      "label": "President Inch",
+      "images": [
+        "training_images\\president_inch\\President-Edward-Inch-0001.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0002.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0003.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0004.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0005.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0006.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0007.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0008.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0009.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0010.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0011.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0012.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0013.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0014.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0015.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0016.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0017.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0018.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0019.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0020.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0021.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0022.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0023.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0024.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0025.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0026.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0027.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0028.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0029.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0030.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0031.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0032.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0033.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0034.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0035.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0036.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0037.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0038.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0039.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0040.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0041.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0042.jpg",
+        "training_images\\president_inch\\President-Edward-Inch-0043.jpg"
+      ]
+    },
+    "buildings": {
+      "label": "campus building",
+      "images": []
+    }
+  }
+}

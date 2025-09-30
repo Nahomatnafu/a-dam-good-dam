@@ -5,6 +5,7 @@ import sys
 import json
 import subprocess
 import threading
+import xml.etree.ElementTree as ET
 sys.path.append('.')
 from src.database import CatalogDatabase
 from src.file_scanner import FileScanner
@@ -33,7 +34,7 @@ class MediaCatalogGUI:
     def setup_menu_bar(self):
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
-        
+
         # File menu
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
@@ -44,15 +45,29 @@ class MediaCatalogGUI:
         file_menu.add_command(label="Refresh Catalog", command=self.refresh_catalog)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
+
+        # Tools menu
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Tools", menu=tools_menu)
+        tools_menu.add_command(label="AI Stills Exporter...", command=self.open_stills_exporter)
         
     def setup_toolbar(self):
         toolbar = ttk.Frame(self.root)
         toolbar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
-        
+
+        # Left side - Catalog operations
         ttk.Button(toolbar, text="New Catalog", command=self.new_catalog).pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar, text="Open Catalog", command=self.open_catalog).pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar, text="Add Folder", command=self.add_folder_to_catalog).pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar, text="🔄 Refresh", command=self.refresh_catalog).pack(side=tk.LEFT, padx=5)
+
+        # Separator
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
+
+        # Right side - AI Tools
+        ttk.Button(toolbar, text="🎬 AI Stills Exporter",
+                  command=self.open_stills_exporter,
+                  style="Accent.TButton").pack(side=tk.LEFT, padx=5)
         
     def setup_three_panel_layout(self):
         # Main container
@@ -117,18 +132,24 @@ class MediaCatalogGUI:
         # Middle panel for file list
         middle_frame = ttk.Frame(parent)
         parent.add(middle_frame, weight=2)
-        
+
         # Files header with view options
         files_header = ttk.Frame(middle_frame)
         files_header.pack(fill=tk.X, pady=5)
-        
+
         ttk.Label(files_header, text="Files", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
-        
-        # View toggle buttons
-        view_frame = ttk.Frame(files_header)
-        view_frame.pack(side=tk.RIGHT)
-        ttk.Button(view_frame, text="List", width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Button(view_frame, text="Grid", width=8).pack(side=tk.LEFT)
+
+        # File type filter
+        filter_frame = ttk.Frame(files_header)
+        filter_frame.pack(side=tk.RIGHT)
+        ttk.Label(filter_frame, text="Show:").pack(side=tk.LEFT, padx=5)
+        self.file_type_filter = tk.StringVar(value="all")
+        ttk.Radiobutton(filter_frame, text="All", variable=self.file_type_filter,
+                       value="all", command=self.apply_file_type_filter).pack(side=tk.LEFT)
+        ttk.Radiobutton(filter_frame, text="Videos", variable=self.file_type_filter,
+                       value="video", command=self.apply_file_type_filter).pack(side=tk.LEFT)
+        ttk.Radiobutton(filter_frame, text="Images", variable=self.file_type_filter,
+                       value="image", command=self.apply_file_type_filter).pack(side=tk.LEFT)
         
         # File tree - removed Keywords column
         columns = ('Name', 'Size', 'Type')
@@ -330,39 +351,57 @@ class MediaCatalogGUI:
         
         return list(set(keywords))  # Remove duplicates
 
+    def apply_file_type_filter(self):
+        """Apply file type filter to the displayed files"""
+        self.load_catalog_files()
+
     def load_catalog_files(self):
         # Clear existing items
         for item in self.file_tree.get_children():
             self.file_tree.delete(item)
-        
+
         if not self.current_catalog:
             return
-        
+
         try:
             files = self.current_catalog.search_files("")
-            
+
             if not files:
                 print("No files found in catalog")
                 self.status_bar.config(text="No files found in catalog")
                 return
-            
+
             print(f"Found {len(files)} files in catalog")
-            
+
+            # Apply file type filter
+            filter_type = self.file_type_filter.get() if hasattr(self, 'file_type_filter') else "all"
+            filtered_files = []
+
             for file_info in files:
+                file_type = file_info.get('file_type', 'unknown')
+                if filter_type == "all" or file_type == filter_type:
+                    filtered_files.append(file_info)
+
+            # Display filtered files
+            for file_info in filtered_files:
                 # Calculate size in MB
                 filesize = file_info.get('filesize') or file_info.get('file_size', 0)
                 size_mb = filesize / (1024 * 1024) if filesize else 0
-                
-                # Insert file into tree - removed keywords
-                self.file_tree.insert('', 'end', 
+
+                # Insert file into tree
+                self.file_tree.insert('', 'end',
                                     text=file_info['filename'],
                                     values=(
                                         file_info['filename'],
                                         f"{size_mb:.1f} MB",
                                         file_info.get('file_type', 'unknown')
                                     ))
-                                    
-            self.status_bar.config(text=f"Loaded {len(files)} files")
+
+            # Update status with filter info
+            if filter_type == "all":
+                self.status_bar.config(text=f"Loaded {len(filtered_files)} files")
+            else:
+                self.status_bar.config(text=f"Showing {len(filtered_files)} {filter_type} files (of {len(files)} total)")
             
         except Exception as e:
             print(f"Error loading files: {e}")
@@ -370,17 +409,50 @@ class MediaCatalogGUI:
             traceback.print_exc()
             self.status_bar.config(text=f"Error loading files: {str(e)}")
 
+    def get_ai_tags_from_xml(self, video_path: Path) -> list:
+        """Check for AI-generated tags XML file and extract tags"""
+        try:
+            # Look for XML file in the same directory or in a _stills folder
+            video_stem = video_path.stem
+            possible_xml_paths = [
+                video_path.parent / f"{video_stem}_tags.xml",
+                video_path.parent / f"{video_stem}_stills" / f"{video_stem}_tags.xml",
+            ]
+
+            for xml_path in possible_xml_paths:
+                if xml_path.exists():
+                    tree = ET.parse(xml_path)
+                    root = tree.getroot()
+
+                    # Collect all unique tags from all frames
+                    all_tags = set()
+                    for frame in root.findall('Frame'):
+                        labels = frame.find('Labels')
+                        if labels is not None:
+                            for label in labels.findall('Label'):
+                                if label.text:
+                                    all_tags.add(label.text.strip())
+
+                    return sorted(list(all_tags))
+
+            return []
+        except Exception as e:
+            print(f"Error reading AI tags: {e}")
+            return []
+
     def on_file_select(self, event):
         """Handle file selection in the tree"""
         selection = self.file_tree.selection()
         if not selection:
             return
-        
+
         item = self.file_tree.item(selection[0])
         filename = item['text']
-        
+
         # Get full file info from database to show real embedded keywords
         keywords_text = "No embedded keywords"
+        ai_tags_text = "No AI tags found"
+
         if self.current_catalog:
             files = self.current_catalog.search_files("")
             selected_file = None
@@ -388,7 +460,7 @@ class MediaCatalogGUI:
                 if file_info['filename'] == filename:
                     selected_file = file_info
                     break
-            
+
             if selected_file:
                 # Get real embedded keywords from database
                 keywords = selected_file.get('keywords', [])
@@ -397,7 +469,15 @@ class MediaCatalogGUI:
                         keywords_text = keywords
                     elif isinstance(keywords, list) and keywords:
                         keywords_text = ', '.join(keywords)
-                
+
+                # Check for AI-generated tags from XML
+                video_path = Path(selected_file['filepath'])
+                ai_tags = self.get_ai_tags_from_xml(video_path)
+                if ai_tags:
+                    ai_tags_text = ', '.join(ai_tags[:20])  # Show first 20 tags
+                    if len(ai_tags) > 20:
+                        ai_tags_text += f" ... ({len(ai_tags)} total)"
+
                 # Store current video path for playback
                 self.current_video_path = selected_file['filepath']
                 if selected_file.get('file_type') == 'video':
@@ -409,15 +489,18 @@ class MediaCatalogGUI:
             else:
                 self.current_video_path = None
                 self.play_button.config(state='disabled')
-        
-        # Update info panel with real embedded keywords
+
+        # Update info panel with real embedded keywords and AI tags
         self.info_text.delete(1.0, tk.END)
         self.info_text.insert(tk.END, f"Selected: {filename}\n\n")
         self.info_text.insert(tk.END, "File Details:\n")
         self.info_text.insert(tk.END, f"Name: {item['values'][0]}\n")
         self.info_text.insert(tk.END, f"Size: {item['values'][1]}\n")
-        self.info_text.insert(tk.END, f"Type: {item['values'][2]}\n")
-        self.info_text.insert(tk.END, f"Keywords: {keywords_text}\n")
+        self.info_text.insert(tk.END, f"Type: {item['values'][2]}\n\n")
+        self.info_text.insert(tk.END, "Embedded Keywords:\n")
+        self.info_text.insert(tk.END, f"{keywords_text}\n\n")
+        self.info_text.insert(tk.END, "AI Generated Tags:\n")
+        self.info_text.insert(tk.END, f"{ai_tags_text}\n")
 
     def generate_and_show_thumbnail(self, video_path):
         """Generate and display thumbnail for video"""
@@ -668,6 +751,26 @@ class MediaCatalogGUI:
                 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to show in explorer: {str(e)}")
+
+    def open_stills_exporter(self):
+        """Open the AI Stills Exporter in a new window"""
+        try:
+            # Create a new top-level window
+            exporter_window = tk.Toplevel(self.root)
+            exporter_window.title("AI Stills Exporter")
+            exporter_window.geometry("600x500")
+
+            # Import and initialize the Stills Exporter GUI
+            try:
+                from stills_exporter_gui import StillsExporterGUI
+            except ImportError:
+                from src.stills_exporter_gui import StillsExporterGUI
+
+            # Create the exporter GUI in the new window
+            StillsExporterGUI(exporter_window)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Stills Exporter: {str(e)}")
 
     def refresh_catalog(self):
         """Refresh catalog by re-scanning all files and updating metadata"""

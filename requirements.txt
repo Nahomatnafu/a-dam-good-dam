@@ -11,6 +11,12 @@ tkinter  # Usually included with Python
 # AI Analysis (optional)
 google-cloud-vision>=3.4.0
 
+# LangChain for new AI image tagger
+langchain==0.3.27
+langchain-community==0.3.29
+langchain-core==0.3.76
+langchain-google-genai==2.0.10
+
 # Development and Building
 pyinstaller>=5.0
 

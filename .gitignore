@@ -43,10 +43,11 @@ temp/
 test_data/
 NeoFinder_Test/
 
-# Credentials
+# Credentials and API Keys
 *credentials*.json
 *.key
 .env
+config/ai_config.json
 
 # OS
 .DS_Store

@@ -47,8 +47,9 @@ class FileScanner:
             
             # Get video-specific info if it's a video
             if file_path.suffix.lower() in self.video_extensions:
-                video_info = self._get_video_info(file_path)
-                file_info.update(video_info)
+                video_info = self._get_video_info_simple(file_path)
+                if video_info:
+                    file_info.update(video_info)
             
             return file_info
             
@@ -64,7 +65,55 @@ class FileScanner:
         elif ext in self.image_extensions:
             return 'image'
         return 'unknown'
-    
+
+    def _get_video_info_simple(self, file_path: Path) -> Optional[Dict]:
+        """Get basic video info without ffprobe (for faster scanning)"""
+        try:
+            # Try to get detailed info with ffprobe
+            return self._get_video_info_detailed(file_path)
+        except Exception as e:
+            # Fallback to basic info if ffprobe fails
+            print(f"Using basic info for {file_path.name}: {e}")
+            return {
+                'duration': 0,
+                'width': 0,
+                'height': 0,
+                'codec': 'unknown'
+            }
+
+    def _get_video_info_detailed(self, file_path: Path) -> Optional[Dict]:
+        """Get detailed video info using ffprobe"""
+        try:
+            cmd = [
+                'ffprobe', '-v', 'quiet', '-print_format', 'json',
+                '-show_format', '-show_streams', str(file_path)
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+            if result.returncode != 0:
+                return None
+
+            data = json.loads(result.stdout)
+            format_info = data.get('format', {})
+
+            # Find video stream
+            video_stream = None
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    video_stream = stream
+                    break
+
+            return {
+                'duration': float(format_info.get('duration', 0)),
+                'width': video_stream.get('width', 0) if video_stream else 0,
+                'height': video_stream.get('height', 0) if video_stream else 0,
+                'codec': video_stream.get('codec_name', '') if video_stream else ''
+            }
+
+        except Exception as e:
+            return None
+
     def get_video_info(self, filepath: Path) -> Dict:
         """Get video file information including embedded metadata"""
         try:

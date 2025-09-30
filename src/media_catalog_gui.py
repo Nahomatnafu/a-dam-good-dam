@@ -414,12 +414,36 @@ class MediaCatalogGUI:
         try:
             # Look for XML file in the same directory or in a _stills folder
             video_stem = video_path.stem
-            possible_xml_paths = [
-                video_path.parent / f"{video_stem}_tags.xml",
-                video_path.parent / f"{video_stem}_stills" / f"{video_stem}_tags.xml",
+
+            # Try multiple variations of the filename
+            # 1. Original with spaces and apostrophes
+            # 2. Spaces to underscores, keep apostrophes
+            # 3. Spaces to underscores, remove apostrophes but keep the 's'
+            # 4. Spaces to underscores, remove apostrophes completely
+            variations = [
+                video_stem,  # Original
+                video_stem.replace(" ", "_"),  # Spaces to underscores
+                video_stem.replace(" ", "_").replace("'s", "s"),  # 's -> s
+                video_stem.replace(" ", "_").replace("'", ""),  # Remove apostrophes
             ]
 
-            for xml_path in possible_xml_paths:
+            possible_xml_paths = []
+            for variant in variations:
+                possible_xml_paths.extend([
+                    video_path.parent / f"{variant}_tags.xml",
+                    video_path.parent / f"{variant}_stills" / f"{variant}_tags.xml",
+                    video_path.parent / f"{variant}_Stills" / f"{variant}_tags.xml",
+                ])
+
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_paths = []
+            for path in possible_xml_paths:
+                if path not in seen:
+                    seen.add(path)
+                    unique_paths.append(path)
+
+            for xml_path in unique_paths:
                 if xml_path.exists():
                     tree = ET.parse(xml_path)
                     root = tree.getroot()

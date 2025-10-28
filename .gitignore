@@ -41,7 +41,10 @@ temp/
 
 # Test Data (don't commit large video files)
 test_data/
+test_videos/
 NeoFinder_Test/
+demo_output/
+batch_demo_output/
 
 # Credentials and API Keys
 *credentials*.json

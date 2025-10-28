@@ -30,16 +30,23 @@ def demo_single_video():
     # Find a test video
     video_extensions = ['.mp4', '.mov', '.avi', '.mkv']
     test_video = None
-    
-    for ext in video_extensions:
-        videos = list(Path(".").glob(f"*{ext}"))
-        if videos:
-            test_video = videos[0]
-            break
-    
+
+    # Look in test_videos folder first, then current directory
+    search_dirs = [Path("test_videos"), Path(".")]
+
+    for search_dir in search_dirs:
+        if search_dir.exists():
+            for ext in video_extensions:
+                videos = list(search_dir.glob(f"*{ext}"))
+                if videos:
+                    test_video = videos[0]
+                    break
+            if test_video:
+                break
+
     if not test_video:
-        print("❌ No test video found in current directory")
-        print("Please place a test video (.mp4, .mov, .avi, .mkv) in the current directory")
+        print("❌ No test video found")
+        print("Please place a test video (.mp4, .mov, .avi, .mkv) in the test_videos/ folder")
         return
     
     print(f"Processing video: {test_video}")
@@ -93,13 +100,18 @@ def demo_batch_processing():
     # Find test videos
     video_extensions = ['.mp4', '.mov', '.avi', '.mkv']
     test_videos = []
-    
-    for ext in video_extensions:
-        test_videos.extend(Path(".").glob(f"*{ext}"))
-    
+
+    # Look in test_videos folder first, then current directory
+    search_dirs = [Path("test_videos"), Path(".")]
+
+    for search_dir in search_dirs:
+        if search_dir.exists():
+            for ext in video_extensions:
+                test_videos.extend(search_dir.glob(f"*{ext}"))
+
     if len(test_videos) < 2:
         print("❌ Need at least 2 videos for batch demo")
-        print("Please place multiple test videos in the current directory")
+        print("Please place multiple test videos in the test_videos/ folder")
         return
     
     # Limit to first 3 videos for demo

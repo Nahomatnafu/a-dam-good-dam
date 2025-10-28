@@ -57,3 +57,12 @@ desktop.ini
 # Temporary files
 *.tmp
 *.temp
+
+# Gallery and training data (keep out of repo)
+/data/gallery/
+/data/cache/
+training_images/
+
+# Keep structure files
+!/data/gallery/.gitkeep
+!/data/cache/.gitkeep

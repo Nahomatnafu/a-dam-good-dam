@@ -15,9 +15,9 @@ class EnhancedVideoProcessor:
         self.api_key = api_key
         
         # Import components
-        from ai.gallery_vision_tagger import GalleryVisionTagger
-        from pipeline.smart_frame_sampler import SmartFrameSampler
-        from ai.tag_filter import TagFilter
+        from src.ai.gallery_vision_tagger import GalleryVisionTagger
+        from src.pipeline.smart_frame_sampler import SmartFrameSampler
+        from src.ai.tag_filter import TagFilter
         
         self.gallery_tagger = GalleryVisionTagger(api_key=api_key, gallery_dir=gallery_dir)
         self.frame_sampler = SmartFrameSampler()

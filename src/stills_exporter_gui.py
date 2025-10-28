@@ -25,6 +25,21 @@ except ImportError:
         class VisionTagger:
             def __init__(self, *args, **kwargs): pass
 
+# Try to import the new gallery-based system
+try:
+    from src.ai.gallery_vision_tagger import GalleryVisionTagger
+    from src.ai.gallery_manager import GalleryManager
+    from src.pipeline.enhanced_video_processor import EnhancedVideoProcessor
+    GALLERY_SYSTEM_AVAILABLE = True
+except ImportError:
+    GALLERY_SYSTEM_AVAILABLE = False
+    class GalleryVisionTagger:
+        def __init__(self, *args, **kwargs): pass
+    class GalleryManager:
+        def __init__(self, *args, **kwargs): pass
+    class EnhancedVideoProcessor:
+        def __init__(self, *args, **kwargs): pass
+
 try:
     from exif_embedder import ExifEmbedder
 except ImportError:
@@ -153,9 +168,15 @@ class StillsExporterGUI:
         row += 1
         
         # AI Tagging checkbox
-        ttk.Checkbutton(ai_frame, text="Enable AI Tagging", 
+        ttk.Checkbutton(ai_frame, text="Enable AI Tagging",
                        variable=self.enable_ai_tagging, command=self.on_ai_toggle).grid(row=0, column=0, sticky=tk.W, pady=2)
-        
+
+        # Gallery System checkbox (new)
+        self.use_gallery_system = tk.BooleanVar(value=True)  # Default to new system
+        gallery_cb = ttk.Checkbutton(ai_frame, text="Use Gallery Recognition (Buildings + Enhanced Filtering)",
+                                   variable=self.use_gallery_system, command=self.on_gallery_toggle)
+        gallery_cb.grid(row=0, column=1, sticky=tk.W, padx=20, pady=2)
+
         # Credentials file selection
         cred_frame = ttk.Frame(ai_frame)
         cred_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=2)
@@ -273,6 +294,10 @@ class StillsExporterGUI:
         """Handle AI toggle"""
         self.update_ai_status()
 
+    def on_gallery_toggle(self):
+        """Handle gallery system toggle"""
+        self.update_ai_status()
+
     def update_ai_status(self):
         """Update AI status display"""
         if not self.enable_ai_tagging.get():
@@ -286,24 +311,40 @@ class StillsExporterGUI:
                                  foreground="orange")
             return
 
-        # Check if LangChain is available
-        try:
-            from vision_tagger import LANGCHAIN_AVAILABLE
-            if LANGCHAIN_AVAILABLE:
-                # Show optimized count (3 per category)
-                training_count = len(self.training_manager.get_training_examples(max_per_category=3))
+        # Check which system to use
+        if self.use_gallery_system.get() and GALLERY_SYSTEM_AVAILABLE:
+            # Gallery system status
+            try:
+                gallery_manager = GalleryManager()
+                gallery_stats = gallery_manager.get_statistics()
+                total_items = gallery_stats.get('total_items', 0)
+                categories = len(gallery_stats.get('categories', {}))
+
                 self.ai_status.config(
-                    text=f"✓ LangChain + Gemini ready | Using {training_count} examples (optimized)",
+                    text=f"✓ Gallery System | {total_items} items, {categories} categories | Enhanced filtering",
                     foreground="green")
-            elif VISION_AVAILABLE:
-                self.ai_status.config(text="✓ Using legacy Google Vision API",
-                                     foreground="blue")
-            else:
-                self.ai_status.config(text="⚠️ No AI libraries available - using mock mode",
+            except Exception as e:
+                self.ai_status.config(text=f"⚠️ Gallery system error: {str(e)[:40]}...",
                                      foreground="orange")
-        except Exception as e:
-            self.ai_status.config(text=f"⚠️ Error: {str(e)[:50]}...",
-                                 foreground="red")
+        else:
+            # Legacy system status
+            try:
+                from vision_tagger import LANGCHAIN_AVAILABLE
+                if LANGCHAIN_AVAILABLE:
+                    # Show optimized count (3 per category)
+                    training_count = len(self.training_manager.get_training_examples(max_per_category=3))
+                    self.ai_status.config(
+                        text=f"✓ Legacy System | LangChain + Gemini | {training_count} examples",
+                        foreground="blue")
+                elif VISION_AVAILABLE:
+                    self.ai_status.config(text="✓ Using legacy Google Vision API",
+                                         foreground="blue")
+                else:
+                    self.ai_status.config(text="⚠️ No AI libraries available - using mock mode",
+                                         foreground="orange")
+            except Exception as e:
+                self.ai_status.config(text=f"⚠️ Error: {str(e)[:50]}...",
+                                     foreground="red")
 
     def browse_credentials(self):
         """Browse for Google Cloud credentials JSON"""
@@ -500,58 +541,102 @@ class StillsExporterGUI:
         # Step 2: AI Tagging (if enabled)
         if self.enable_ai_tagging.get():
             self.log_message(f"AI Tagging enabled for {video_path.name}")
-            
-            if not VISION_AVAILABLE:
-                self.log_message("⚠️ Google Vision library not available")
-                return 1, extracted_count
-                
+
             try:
-                self.log_message(f"Analyzing {extracted_count} frames for {video_path.name}...")
+                if self.use_gallery_system.get() and GALLERY_SYSTEM_AVAILABLE:
+                    # Use new gallery-based system
+                    self.log_message("✓ Using Gallery Recognition System")
 
-                # Get API key and training examples (max 3 per category for efficiency)
-                api_key = self.training_manager.get_api_key()
-                training_examples = self.training_manager.get_training_examples(max_per_category=3)
+                    # Get API key
+                    api_key = self.training_manager.get_api_key()
+                    if not api_key:
+                        self.log_message("❌ No API key configured for gallery system")
+                        return 1, extracted_count
 
-                if training_examples:
-                    self.log_message(f"Using {len(training_examples)} training examples (3 per category for speed)")
-                    for ex in training_examples:
-                        self.log_message(f"  - {ex['label']}: {Path(ex['image_path']).name}")
+                    # Initialize enhanced processor
+                    processor = EnhancedVideoProcessor(api_key=api_key)
 
-                # Initialize tagger with training examples
-                vision_tagger = VisionTagger(
-                    credentials_path=self.vision_credentials.get() or None,
-                    api_key=api_key,
-                    training_examples=training_examples
-                )
+                    # Process video with gallery system
+                    result = processor.process_video_with_gallery(
+                        video_path=video_path,
+                        output_dir=clip_stills_folder.parent
+                    )
 
-                if vision_tagger.langchain_tagger:
-                    self.log_message("✓ Using LangChain + Gemini for AI tagging")
-                elif vision_tagger.mock_mode:
-                    self.log_message("⚠️ Vision tagger in mock mode - check credentials")
+                    if result.get('success'):
+                        gallery_matches = result.get('gallery_matches', [])
+                        final_tags = result.get('final_tags', [])
+
+                        self.log_message(f"✅ Gallery processing complete:")
+                        self.log_message(f"  Gallery matches: {len(gallery_matches)}")
+                        self.log_message(f"  Final tags: {len(final_tags)}")
+
+                        # Show top results
+                        if gallery_matches:
+                            self.log_message("  Top gallery matches:")
+                            for match in gallery_matches[:3]:
+                                self.log_message(f"    - {match['gallery_label']} ({match['confidence']:.2f})")
+
+                        if final_tags:
+                            self.log_message("  Top tags:")
+                            for tag in final_tags[:5]:
+                                self.log_message(f"    - {tag['tag']} ({tag['confidence']:.2f})")
+                    else:
+                        self.log_message(f"❌ Gallery processing failed: {result.get('error', 'Unknown error')}")
+
                 else:
-                    self.log_message("✓ Using legacy Google Vision API")
-                
-                # Get all extracted images
-                image_files = list(clip_stills_folder.glob(f"{base_name}_*.{image_format}"))
-                self.log_message(f"Found {len(image_files)} images to analyze")
-                
-                # Analyze each image
-                analysis_results = []
-                for img_path in image_files:
-                    if self.stop_flag.is_set():
-                        break
-                    self.log_message(f"  Analyzing {img_path.name}...")
-                    result = vision_tagger.analyze_image(img_path)
-                    analysis_results.append(result)
-                
-                # Save analysis to XML
-                if analysis_results:
-                    xml_path = clip_stills_folder / f"{base_name}_tags.xml"
-                    vision_tagger.create_xml_tags(analysis_results, xml_path)
-                    self.log_message(f"✅ Saved AI analysis to {xml_path.name}")
-                else:
-                    self.log_message("❌ No analysis results to save")
-                
+                    # Use legacy system
+                    self.log_message("✓ Using Legacy AI System")
+
+                    if not VISION_AVAILABLE:
+                        self.log_message("⚠️ Google Vision library not available")
+                        return 1, extracted_count
+
+                    self.log_message(f"Analyzing {extracted_count} frames for {video_path.name}...")
+
+                    # Get API key and training examples (max 3 per category for efficiency)
+                    api_key = self.training_manager.get_api_key()
+                    training_examples = self.training_manager.get_training_examples(max_per_category=3)
+
+                    if training_examples:
+                        self.log_message(f"Using {len(training_examples)} training examples (3 per category for speed)")
+                        for ex in training_examples:
+                            self.log_message(f"  - {ex['label']}: {Path(ex['image_path']).name}")
+
+                    # Initialize tagger with training examples
+                    vision_tagger = VisionTagger(
+                        credentials_path=self.vision_credentials.get() or None,
+                        api_key=api_key,
+                        training_examples=training_examples
+                    )
+
+                    if vision_tagger.langchain_tagger:
+                        self.log_message("✓ Using LangChain + Gemini for AI tagging")
+                    elif vision_tagger.mock_mode:
+                        self.log_message("⚠️ Vision tagger in mock mode - check credentials")
+                    else:
+                        self.log_message("✓ Using legacy Google Vision API")
+
+                    # Get all extracted images
+                    image_files = list(clip_stills_folder.glob(f"{base_name}_*.{image_format}"))
+                    self.log_message(f"Found {len(image_files)} images to analyze")
+
+                    # Analyze each image
+                    analysis_results = []
+                    for img_path in image_files:
+                        if self.stop_flag.is_set():
+                            break
+                        self.log_message(f"  Analyzing {img_path.name}...")
+                        result = vision_tagger.analyze_image(img_path)
+                        analysis_results.append(result)
+
+                    # Save analysis to XML
+                    if analysis_results:
+                        xml_path = clip_stills_folder / f"{base_name}_tags.xml"
+                        vision_tagger.create_xml_tags(analysis_results, xml_path)
+                        self.log_message(f"✅ Saved AI analysis to {xml_path.name}")
+                    else:
+                        self.log_message("❌ No analysis results to save")
+
             except Exception as e:
                 self.log_message(f"❌ AI tagging error for {video_path.name}: {str(e)}")
                 import traceback

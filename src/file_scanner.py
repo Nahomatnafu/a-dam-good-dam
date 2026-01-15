@@ -147,7 +147,7 @@ class FileScanner:
             return {
                 'filepath': str(filepath),
                 'filename': filepath.name,
-                'file_size': stat.st_size,
+                'filesize': stat.st_size,
                 'file_type': 'video',
                 'duration': float(format_info.get('duration', 0)),
                 'width': video_stream.get('width', 0) if video_stream else 0,

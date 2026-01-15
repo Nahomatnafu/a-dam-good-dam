@@ -448,7 +448,34 @@ class MediaCatalogGUI:
                     tree = ET.parse(xml_path)
                     root = tree.getroot()
 
-                    # Collect all unique tags from all frames
+                    # Handle new XML format (video_analysis with final_tags)
+                    final_tags = root.find('final_tags')
+                    if final_tags is not None:
+                        all_tags = []
+
+                        # Add regular tags (remove confidence scores from display)
+                        for tag in final_tags.findall('tag'):
+                            if tag.text:
+                                all_tags.append(tag.text.strip())
+
+                        # Add gallery matches (only high-confidence building matches)
+                        gallery_matches = root.find('gallery_matches')
+                        if gallery_matches is not None:
+                            building_confidence_threshold = 0.65  # Only show buildings with >65% confidence
+                            seen_buildings = set()  # Avoid duplicate building names
+
+                            for match in gallery_matches.findall('match'):
+                                category = match.get('category', '')
+                                confidence = float(match.get('confidence', '0'))
+
+                                if category and confidence >= building_confidence_threshold:
+                                    if category not in seen_buildings:
+                                        all_tags.append(f"🏛️ {category}")
+                                        seen_buildings.add(category)
+
+                        return all_tags
+
+                    # Fallback: Handle old XML format
                     all_tags = set()
                     for frame in root.findall('Frame'):
                         labels = frame.find('Labels')
@@ -601,58 +628,108 @@ class MediaCatalogGUI:
             print(f"Search error: {e}")
 
     def load_catalog_structure(self):
-        """Load catalog structure with folders"""
+        """Load all available catalogs and current catalog structure"""
         # Clear existing items
         for item in self.catalog_tree.get_children():
             self.catalog_tree.delete(item)
-        
+
+        # Add root "My Catalogs" node
+        root_item = self.catalog_tree.insert('', 'end', text='📁 My Catalogs', open=True)
+
+        # Find all catalog files
+        catalog_dir = Path('catalogs')
+        if catalog_dir.exists():
+            catalog_files = list(catalog_dir.glob('*.db'))
+            catalog_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)  # Most recent first
+
+            for catalog_file in catalog_files:
+                catalog_name = catalog_file.stem
+
+                # Mark current catalog with special icon
+                if self.current_catalog and catalog_file == self.current_catalog.catalog_path:
+                    catalog_icon = '📊'  # Current catalog
+                    catalog_text = f'{catalog_icon} {catalog_name} (current)'
+                    catalog_item = self.catalog_tree.insert(root_item, 'end',
+                                                          text=catalog_text,
+                                                          values=('catalog', str(catalog_file)),
+                                                          open=True)
+
+                    # Add folders for current catalog
+                    try:
+                        files = self.current_catalog.search_files("")
+                        folders = {}
+
+                        for file_info in files:
+                            filepath = Path(file_info['filepath'])
+                            folder_path = filepath.parent
+                            folder_name = folder_path.name
+
+                            if folder_name not in folders:
+                                folders[folder_name] = []
+                            folders[folder_name].append(file_info)
+
+                        # Add folders to current catalog
+                        for folder_name, folder_files in folders.items():
+                            folder_item = self.catalog_tree.insert(catalog_item, 'end',
+                                                                 text=f'📁 {folder_name} ({len(folder_files)})',
+                                                                 values=('folder', folder_name))
+
+                    except Exception as e:
+                        print(f"Error loading current catalog structure: {e}")
+                else:
+                    # Other catalogs (not currently open)
+                    catalog_icon = '📄'  # Available catalog
+                    catalog_text = f'{catalog_icon} {catalog_name}'
+                    self.catalog_tree.insert(root_item, 'end',
+                                           text=catalog_text,
+                                           values=('catalog', str(catalog_file)))
+
         if not self.current_catalog:
-            root_item = self.catalog_tree.insert('', 'end', text='📁 My Catalogs', open=True)
-            return
-        
-        # Add current catalog
-        catalog_name = self.current_catalog.catalog_path.stem
-        catalog_item = self.catalog_tree.insert('', 'end', text=f'📊 {catalog_name}', open=True)
-        
-        # Get all files and organize by folder
-        try:
-            files = self.current_catalog.search_files("")
-            folders = {}
-            
-            for file_info in files:
-                filepath = Path(file_info['filepath'])
-                folder_path = filepath.parent
-                folder_name = folder_path.name
-                
-                if folder_name not in folders:
-                    folders[folder_name] = []
-                folders[folder_name].append(file_info)
-            
-            # Add folders to tree
-            for folder_name, folder_files in folders.items():
-                folder_item = self.catalog_tree.insert(catalog_item, 'end', 
-                                                     text=f'📁 {folder_name} ({len(folder_files)})',
-                                                     values=(folder_name,))
-            
-        except Exception as e:
-            print(f"Error loading catalog structure: {e}")
+            self.catalog_tree.insert(root_item, 'end',
+                                   text='ℹ️ No catalog open - Create or open a catalog',
+                                   values=('info', ''))
 
     def on_catalog_select(self, event):
         """Handle catalog/folder selection"""
         selection = self.catalog_tree.selection()
         if not selection:
             return
-        
+
         item = self.catalog_tree.item(selection[0])
         text = item['text']
         values = item.get('values', [])
-        
-        if values and len(values) > 0:
-            # This is a folder selection
+
+        if values and len(values) >= 2:
+            item_type = values[0]
+            item_value = values[1]
+
+            if item_type == 'catalog':
+                # Switch to a different catalog
+                try:
+                    catalog_path = Path(item_value)
+                    if catalog_path.exists():
+                        self.current_catalog = CatalogDatabase(catalog_path)
+                        catalog_name = catalog_path.stem
+                        self.status_bar.config(text=f"Switched to catalog: {catalog_name}")
+                        self.load_catalog_files()
+                        self.load_catalog_structure()  # Refresh to show current catalog
+                        self.save_session()  # Save the switched catalog
+                    else:
+                        messagebox.showerror("Error", f"Catalog file not found: {catalog_path}")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to open catalog: {str(e)}")
+
+            elif item_type == 'folder':
+                # Filter by folder
+                folder_name = item_value
+                self.filter_by_folder(folder_name)
+
+        elif values and len(values) == 1:
+            # Legacy format - folder selection
             folder_name = values[0]
             self.filter_by_folder(folder_name)
         else:
-            # This is catalog selection
+            # No values - catalog root selection
             self.load_catalog_files()
 
     def filter_by_folder(self, folder_name):

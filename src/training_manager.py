@@ -30,13 +30,26 @@ class TrainingManager:
             json.dump(self.config, f, indent=2)
     
     def get_api_key(self) -> str:
-        """Get Google API key"""
+        """Get Google API key (legacy – prefer get_roboflow_api_key)."""
         return self.config.get("google_api_key", "")
-    
+
     def set_api_key(self, api_key: str):
-        """Set Google API key"""
+        """Set Google API key (legacy – prefer set_roboflow_api_key)."""
         self.config["google_api_key"] = api_key
         self.save_config()
+
+    def get_roboflow_api_key(self) -> str:
+        """Get the Roboflow API key."""
+        return self.config.get("roboflow_api_key", "")
+
+    def set_roboflow_api_key(self, api_key: str):
+        """Set the Roboflow API key and persist it to the config file."""
+        self.config["roboflow_api_key"] = api_key
+        self.save_config()
+
+    def get_roboflow_model_id(self) -> str:
+        """Get the Roboflow model ID (defaults to COCO if not configured)."""
+        return self.config.get("roboflow_model_id", "coco-seg-0.9.7")
     
     def add_training_example(self, category: str, label: str, image_path: str):
         """Add a training example for a category"""

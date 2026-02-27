@@ -58,6 +58,8 @@ except ImportError:
         class TrainingManager:
             def __init__(self, *args): pass
             def get_api_key(self): return ""
+            def get_roboflow_api_key(self): return ""
+            def get_roboflow_model_id(self): return "coco-seg-0.9.7"
             def get_training_examples(self, *args): return []
 
 class StillsExporterGUI:
@@ -308,11 +310,14 @@ class StillsExporterGUI:
             self.ai_status.config(text="AI tagging disabled", foreground="gray")
             return
 
-        # Check for API key
-        api_key = self.training_manager.get_api_key()
-        if not api_key:
-            self.ai_status.config(text="⚠️ No Google API key configured in config/ai_config.json",
-                                 foreground="orange")
+        # Check for an API key — Roboflow takes priority over Google
+        roboflow_key = self.training_manager.get_roboflow_api_key()
+        google_key = self.training_manager.get_api_key()
+
+        if not roboflow_key and not google_key:
+            self.ai_status.config(
+                text="⚠️ No API key configured — add roboflow_api_key to config/ai_config.json",
+                foreground="orange")
             return
 
         # Check which system to use
@@ -331,20 +336,24 @@ class StillsExporterGUI:
                 self.ai_status.config(text=f"⚠️ Gallery system error: {str(e)[:40]}...",
                                      foreground="orange")
         else:
-            # Legacy system status
+            # Show which backend will be used
             try:
-                from vision_tagger import LANGCHAIN_AVAILABLE
-                if LANGCHAIN_AVAILABLE:
-                    # Show optimized count (3 per category)
+                from vision_tagger import ROBOFLOW_AVAILABLE, LANGCHAIN_AVAILABLE
+                if ROBOFLOW_AVAILABLE and roboflow_key:
+                    model = self.training_manager.get_roboflow_model_id()
+                    self.ai_status.config(
+                        text=f"✓ Roboflow | model: {model}",
+                        foreground="green")
+                elif LANGCHAIN_AVAILABLE and google_key:
                     training_count = len(self.training_manager.get_training_examples(max_per_category=3))
                     self.ai_status.config(
-                        text=f"✓ Legacy System | LangChain + Gemini | {training_count} examples",
+                        text=f"✓ LangChain + Gemini | {training_count} examples",
                         foreground="blue")
                 elif VISION_AVAILABLE:
                     self.ai_status.config(text="✓ Using legacy Google Vision API",
                                          foreground="blue")
                 else:
-                    self.ai_status.config(text="⚠️ No AI libraries available - using mock mode",
+                    self.ai_status.config(text="⚠️ No AI libraries installed — mock mode",
                                          foreground="orange")
             except Exception as e:
                 self.ai_status.config(text=f"⚠️ Error: {str(e)[:50]}...",
@@ -586,10 +595,11 @@ class StillsExporterGUI:
                     # Use new gallery-based system
                     self.log_message("✓ Using Gallery Recognition System")
 
-                    # Get API key
-                    api_key = self.training_manager.get_api_key()
+                    # Prefer Roboflow key, fall back to Google key
+                    api_key = (self.training_manager.get_roboflow_api_key()
+                               or self.training_manager.get_api_key())
                     if not api_key:
-                        self.log_message("❌ No API key configured for gallery system")
+                        self.log_message("❌ No API key configured — add roboflow_api_key to config/ai_config.json")
                         return 1, extracted_count
 
                     # Initialize enhanced processor
@@ -632,8 +642,10 @@ class StillsExporterGUI:
 
                     self.log_message(f"Analyzing {extracted_count} frames for {video_path.name}...")
 
-                    # Get API key and training examples (max 3 per category for efficiency)
-                    api_key = self.training_manager.get_api_key()
+                    # Get API keys and training examples
+                    roboflow_key = self.training_manager.get_roboflow_api_key()
+                    roboflow_model = self.training_manager.get_roboflow_model_id()
+                    google_key = self.training_manager.get_api_key()
                     training_examples = self.training_manager.get_training_examples(max_per_category=3)
 
                     if training_examples:
@@ -641,17 +653,21 @@ class StillsExporterGUI:
                         for ex in training_examples:
                             self.log_message(f"  - {ex['label']}: {Path(ex['image_path']).name}")
 
-                    # Initialize tagger with training examples
+                    # Initialize tagger — Roboflow takes priority
                     vision_tagger = VisionTagger(
                         credentials_path=self.vision_credentials.get() or None,
-                        api_key=api_key,
-                        training_examples=training_examples
+                        api_key=google_key,
+                        training_examples=training_examples,
+                        roboflow_api_key=roboflow_key,
+                        roboflow_model_id=roboflow_model,
                     )
 
-                    if vision_tagger.langchain_tagger:
+                    if vision_tagger.roboflow_tagger and vision_tagger.roboflow_tagger.available:
+                        self.log_message(f"✓ Using Roboflow ({roboflow_model}) for AI tagging")
+                    elif vision_tagger.langchain_tagger:
                         self.log_message("✓ Using LangChain + Gemini for AI tagging")
                     elif vision_tagger.mock_mode:
-                        self.log_message("⚠️ Vision tagger in mock mode - check credentials")
+                        self.log_message("⚠️ Vision tagger in mock mode — check credentials")
                     else:
                         self.log_message("✓ Using legacy Google Vision API")
 

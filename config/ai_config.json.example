@@ -1,5 +1,7 @@
 {
-  "google_api_key": "YOUR_GOOGLE_API_KEY_HERE",
+  "roboflow_api_key": "YOUR_ROBOFLOW_API_KEY_HERE",
+  "roboflow_model_id": "coco-seg-0.9.7",
+  "google_api_key": "",
   "training_examples": {
     "president_inch": {
       "label": "President Inch",

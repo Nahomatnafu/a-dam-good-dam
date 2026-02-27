@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-AI-powered image tagging using LangChain and Google Gemini
+AI-powered image tagging.
+Backend priority: Roboflow → LangChain/Gemini → Legacy Google Vision → Mock
 """
 
 import os
@@ -10,7 +11,14 @@ from pathlib import Path
 from typing import List, Dict, Optional
 import logging
 
-# Try to import the new LangChain-based tagger
+# Roboflow backend (preferred — no Google account required)
+try:
+    from roboflow_tagger import RoboflowTagger
+    ROBOFLOW_AVAILABLE = True
+except ImportError:
+    ROBOFLOW_AVAILABLE = False
+
+# LangChain / Gemini backend
 try:
     from ctagger import ImageTagger
     LANGCHAIN_AVAILABLE = True
@@ -24,24 +32,56 @@ try:
 except ImportError:
     VISION_AVAILABLE = False
 
+
 class VisionTagger:
-    def __init__(self, credentials_path: Optional[str] = None, api_key: Optional[str] = None,
-                 training_examples: Optional[List[Dict[str, str]]] = None):
+    def __init__(
+        self,
+        credentials_path: Optional[str] = None,
+        api_key: Optional[str] = None,
+        training_examples: Optional[List[Dict[str, str]]] = None,
+        roboflow_api_key: Optional[str] = None,
+        roboflow_model_id: str = "coco-seg-0.9.7",
+    ):
         """
-        Initialize the tagger with either LangChain (preferred) or legacy Google Vision.
+        Initialize the tagger.
+
+        Backend priority:
+          1. Roboflow  (roboflow_api_key)
+          2. LangChain + Gemini  (api_key)
+          3. Legacy Google Vision  (credentials_path)
+          4. Mock mode (no external API needed)
 
         Args:
-            credentials_path: Path to Google Cloud credentials (for legacy Vision API)
-            api_key: Google API key for Gemini (for LangChain tagger)
-            training_examples: List of training examples for few-shot learning
-                              Format: [{'image_path': 'path/to/image.jpg', 'label': 'person name'}]
+            credentials_path:  Path to Google Cloud credentials JSON.
+            api_key:           Google/Gemini API key (legacy).
+            training_examples: Few-shot examples for LangChain tagger.
+            roboflow_api_key:  Roboflow API key (preferred backend).
+            roboflow_model_id: Roboflow model to use (default: COCO).
         """
         self.client = None
         self.langchain_tagger = None
+        self.roboflow_tagger = None
         self.mock_mode = False
         self.training_examples = training_examples or []
 
-        # Try LangChain tagger first (preferred)
+        # ── 1. Try Roboflow first ────────────────────────────────────────────
+        if ROBOFLOW_AVAILABLE and roboflow_api_key:
+            try:
+                self.roboflow_tagger = RoboflowTagger(
+                    api_key=roboflow_api_key,
+                    model_id=roboflow_model_id,
+                )
+                if self.roboflow_tagger.available:
+                    print("✅ Using Roboflow for AI tagging")
+                    return
+                else:
+                    print("⚠️ Roboflow tagger initialised but not available — falling back")
+                    self.roboflow_tagger = None
+            except Exception as e:
+                print(f"⚠️ Roboflow tagger failed: {e}")
+                self.roboflow_tagger = None
+
+        # ── 2. Try LangChain + Gemini ────────────────────────────────────────
         if LANGCHAIN_AVAILABLE and api_key:
             try:
                 os.environ["GOOGLE_API_KEY"] = api_key
@@ -51,17 +91,18 @@ class VisionTagger:
             except Exception as e:
                 print(f"⚠️ LangChain tagger failed: {e}")
 
-        # Fall back to legacy Google Vision
+        # ── 3. Legacy Google Vision ──────────────────────────────────────────
         if VISION_AVAILABLE:
             try:
                 self.setup_client(credentials_path)
                 print("✅ Using legacy Google Vision API")
+                return
             except Exception as e:
                 print(f"⚠️ Vision client failed, using mock mode: {e}")
-                self.mock_mode = True
-        else:
-            print("📝 Using mock analysis (no AI libraries available)")
-            self.mock_mode = True
+
+        # ── 4. Mock mode ─────────────────────────────────────────────────────
+        print("📝 Using mock analysis (no AI backend configured)")
+        self.mock_mode = True
     
     def setup_client(self, credentials_path: Optional[str] = None):
         """Initialize Google Vision client"""
@@ -81,7 +122,15 @@ class VisionTagger:
         if self.mock_mode:
             return self.mock_analyze_image(image_path)
 
-        # Use LangChain tagger if available
+        # ── Roboflow (preferred) ─────────────────────────────────────────────
+        if self.roboflow_tagger and self.roboflow_tagger.available:
+            try:
+                return self.roboflow_tagger.tag(str(image_path))
+            except Exception as e:
+                print(f"⚠️ Roboflow tagging failed for {image_path.name}: {e}")
+                # fall through to next backend
+
+        # ── LangChain / Gemini ───────────────────────────────────────────────
         if self.langchain_tagger:
             try:
                 result = self.langchain_tagger.tag(str(image_path), self.training_examples)

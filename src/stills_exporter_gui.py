@@ -15,14 +15,30 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import shutil
 try:
-    from vision_tagger import VisionTagger, VISION_AVAILABLE
+    from vision_tagger import VisionTagger, VISION_AVAILABLE, LANGCHAIN_AVAILABLE
 except ImportError:
     try:
-        from src.vision_tagger import VisionTagger, VISION_AVAILABLE
+        from src.vision_tagger import VisionTagger, VISION_AVAILABLE, LANGCHAIN_AVAILABLE
     except ImportError:
         VISION_AVAILABLE = False
+        LANGCHAIN_AVAILABLE = False
         class VisionTagger:
-            def __init__(self, *args): pass
+            def __init__(self, *args, **kwargs): pass
+
+# Try to import the new gallery-based system
+try:
+    from src.ai.gallery_vision_tagger import GalleryVisionTagger
+    from src.ai.gallery_manager import GalleryManager
+    from src.pipeline.enhanced_video_processor import EnhancedVideoProcessor
+    GALLERY_SYSTEM_AVAILABLE = True
+except ImportError:
+    GALLERY_SYSTEM_AVAILABLE = False
+    class GalleryVisionTagger:
+        def __init__(self, *args, **kwargs): pass
+    class GalleryManager:
+        def __init__(self, *args, **kwargs): pass
+    class EnhancedVideoProcessor:
+        def __init__(self, *args, **kwargs): pass
 
 try:
     from exif_embedder import ExifEmbedder
@@ -33,13 +49,26 @@ except ImportError:
         class ExifEmbedder:
             def __init__(self): self.exiftool_available = False
 
+try:
+    from training_manager import TrainingManager
+except ImportError:
+    try:
+        from src.training_manager import TrainingManager
+    except ImportError:
+        class TrainingManager:
+            def __init__(self, *args): pass
+            def get_api_key(self): return ""
+            def get_roboflow_api_key(self): return ""
+            def get_roboflow_model_id(self): return "coco-seg-0.9.7"
+            def get_training_examples(self, *args): return []
+
 class StillsExporterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Stills Exporter")
         self.root.geometry("600x500")
         self.root.resizable(True, True)
-        
+
         # Variables
         self.source_folder = tk.StringVar()
         self.output_folder = tk.StringVar()
@@ -48,16 +77,19 @@ class StillsExporterGUI:
         self.enable_ai_tagging = tk.BooleanVar(value=False)
         self.embed_metadata = tk.BooleanVar(value=False)
         self.vision_credentials = tk.StringVar()
-        
+
         # Settings file path
         self.settings_file = Path.home() / ".stills_exporter_config.json"
-        
+
+        # Initialize training manager
+        self.training_manager = TrainingManager()
+
         # Check for ffmpeg
         self.ffmpeg_available = self.check_ffmpeg()
-        
+
         self.setup_ui()
         self.load_settings()
-        
+
         # Auto-detect credentials after UI is set up
         self.auto_detect_credentials()
         if self.vision_credentials.get():
@@ -138,9 +170,15 @@ class StillsExporterGUI:
         row += 1
         
         # AI Tagging checkbox
-        ttk.Checkbutton(ai_frame, text="Enable AI Tagging", 
+        ttk.Checkbutton(ai_frame, text="Enable AI Tagging",
                        variable=self.enable_ai_tagging, command=self.on_ai_toggle).grid(row=0, column=0, sticky=tk.W, pady=2)
-        
+
+        # Gallery System checkbox (new)
+        self.use_gallery_system = tk.BooleanVar(value=True)  # Default to new system
+        gallery_cb = ttk.Checkbutton(ai_frame, text="Use Gallery Recognition (Buildings + Enhanced Filtering)",
+                                   variable=self.use_gallery_system, command=self.on_gallery_toggle)
+        gallery_cb.grid(row=0, column=1, sticky=tk.W, padx=20, pady=2)
+
         # Credentials file selection
         cred_frame = ttk.Frame(ai_frame)
         cred_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=2)
@@ -203,33 +241,44 @@ class StillsExporterGUI:
         # Initialize threading
         self.export_thread = None
         self.stop_flag = threading.Event()
+
+        # Log initialization completion
+        self.log_message("✅ Stills Exporter initialized successfully")
+        self.log_message("Click 'Browse' buttons to select source and output folders")
         
     def setup_ai_section(self, parent):
         """Setup AI tagging section"""
-        ai_frame = ttk.LabelFrame(parent, text="AI Features", padding="10")
+        ai_frame = ttk.LabelFrame(parent, text="AI Features (LangChain + Gemini)", padding="10")
         ai_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(10, 0))
         ai_frame.columnconfigure(1, weight=1)
-        
+
         # Enable AI tagging
-        ttk.Checkbutton(ai_frame, text="Enable AI Tagging (Google Vision)", 
+        ttk.Checkbutton(ai_frame, text="Enable AI Tagging with Few-Shot Learning",
                        variable=self.enable_ai_tagging,
-                       command=self.on_ai_toggle).grid(row=0, column=0, columnspan=2, sticky=tk.W)
-        
-        # Credentials path
-        ttk.Label(ai_frame, text="Credentials JSON:").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
-        ttk.Entry(ai_frame, textvariable=self.vision_credentials, 
-                 width=40).grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(5, 0), pady=(5, 0))
-        ttk.Button(ai_frame, text="Browse", 
-                  command=self.browse_credentials).grid(row=1, column=2, padx=(5, 0), pady=(5, 0))
-        
+                       command=self.on_ai_toggle).grid(row=0, column=0, columnspan=3, sticky=tk.W)
+
+        # Training examples info (using max 3 per category for efficiency)
+        training_examples = self.training_manager.get_training_examples(max_per_category=3)
+        training_info = ttk.Label(ai_frame,
+                                 text=f"Training examples: {len(training_examples)} (3 per category for speed)",
+                                 foreground="blue")
+        training_info.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+
+        # Show categories
+        categories = self.training_manager.list_categories()
+        if categories:
+            cat_text = "Categories: " + ", ".join(categories)
+            ttk.Label(ai_frame, text=cat_text, foreground="gray").grid(
+                row=2, column=0, columnspan=3, sticky=tk.W, pady=(2, 0))
+
         # Embed metadata
-        ttk.Checkbutton(ai_frame, text="Embed metadata into videos (ExifTool)", 
-                       variable=self.embed_metadata).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
-        
+        ttk.Checkbutton(ai_frame, text="Embed metadata into videos (ExifTool)",
+                       variable=self.embed_metadata).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
+
         # Status
         self.ai_status = ttk.Label(ai_frame, text="", foreground="gray")
-        self.ai_status.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
-        
+        self.ai_status.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+
         self.update_ai_status()
 
     def auto_detect_credentials(self):
@@ -251,48 +300,119 @@ class StillsExporterGUI:
         """Handle AI toggle"""
         self.update_ai_status()
 
+    def on_gallery_toggle(self):
+        """Handle gallery system toggle"""
+        self.update_ai_status()
+
     def update_ai_status(self):
         """Update AI status display"""
-        if not VISION_AVAILABLE:
-            self.ai_status.config(text="⚠️ Google Vision library not installed", 
-                                 foreground="orange")
-        elif not self.enable_ai_tagging.get():
+        if not self.enable_ai_tagging.get():
             self.ai_status.config(text="AI tagging disabled", foreground="gray")
-        elif not self.vision_credentials.get():
-            self.ai_status.config(text="⚠️ No credentials file selected", foreground="orange")
-        else:
-            # Test credentials
+            return
+
+        # Check for an API key — Roboflow takes priority over Google
+        roboflow_key = self.training_manager.get_roboflow_api_key()
+        google_key = self.training_manager.get_api_key()
+
+        if not roboflow_key and not google_key:
+            self.ai_status.config(
+                text="⚠️ No API key configured — add roboflow_api_key to config/ai_config.json",
+                foreground="orange")
+            return
+
+        # Check which system to use
+        if self.use_gallery_system.get() and GALLERY_SYSTEM_AVAILABLE:
+            # Gallery system status
             try:
-                from vision_tagger import VisionTagger
-                tagger = VisionTagger(self.vision_credentials.get())
-                if tagger.mock_mode:
-                    self.ai_status.config(text="⚠️ Credentials invalid - using mock mode", 
-                                         foreground="orange")
-                else:
-                    self.ai_status.config(text="✓ AI tagging ready", foreground="green")
+                gallery_manager = GalleryManager()
+                gallery_stats = gallery_manager.get_statistics()
+                total_items = gallery_stats.get('total_items', 0)
+                categories = len(gallery_stats.get('categories', {}))
+
+                self.ai_status.config(
+                    text=f"✓ Gallery System | {total_items} items, {categories} categories | Enhanced filtering",
+                    foreground="green")
             except Exception as e:
-                self.ai_status.config(text=f"⚠️ Credentials error: {str(e)[:50]}...", 
+                self.ai_status.config(text=f"⚠️ Gallery system error: {str(e)[:40]}...",
+                                     foreground="orange")
+        else:
+            # Show which backend will be used
+            try:
+                from vision_tagger import ROBOFLOW_AVAILABLE, LANGCHAIN_AVAILABLE
+                if ROBOFLOW_AVAILABLE and roboflow_key:
+                    model = self.training_manager.get_roboflow_model_id()
+                    self.ai_status.config(
+                        text=f"✓ Roboflow | model: {model}",
+                        foreground="green")
+                elif LANGCHAIN_AVAILABLE and google_key:
+                    training_count = len(self.training_manager.get_training_examples(max_per_category=3))
+                    self.ai_status.config(
+                        text=f"✓ LangChain + Gemini | {training_count} examples",
+                        foreground="blue")
+                elif VISION_AVAILABLE:
+                    self.ai_status.config(text="✓ Using legacy Google Vision API",
+                                         foreground="blue")
+                else:
+                    self.ai_status.config(text="⚠️ No AI libraries installed — mock mode",
+                                         foreground="orange")
+            except Exception as e:
+                self.ai_status.config(text=f"⚠️ Error: {str(e)[:50]}...",
                                      foreground="red")
 
     def browse_credentials(self):
-        """Browse for Google Cloud credentials JSON"""
-        filename = filedialog.askopenfilename(
-            title="Select Google Cloud Credentials JSON",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-        if filename:
-            self.vision_credentials.set(filename)
-            self.update_ai_status()
+        """Browse for Google Cloud credentials JSON with proper parent window handling"""
+        try:
+            filename = filedialog.askopenfilename(
+                title="Select Google Cloud Credentials JSON",
+                parent=self.root,
+                initialdir=os.path.expanduser("~"),
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+            )
+            if filename:
+                self.vision_credentials.set(filename)
+                self.log_message(f"Credentials file selected: {filename}")
+                self.update_ai_status()
+            else:
+                self.log_message("Credentials file selection cancelled")
+        except Exception as e:
+            self.log_message(f"Error selecting credentials file: {str(e)}")
+            messagebox.showerror("Error", f"Failed to open file dialog: {str(e)}")
             
     def browse_source(self):
-        folder = filedialog.askdirectory(title="Select Source Folder")
-        if folder:
-            self.source_folder.set(folder)
-            
+        """Browse for source folder with proper parent window handling"""
+        try:
+            # Ensure the dialog appears on top and is modal to this window
+            folder = filedialog.askdirectory(
+                title="Select Source Folder",
+                parent=self.root,
+                initialdir=os.path.expanduser("~")
+            )
+            if folder:
+                self.source_folder.set(folder)
+                self.log_message(f"Source folder selected: {folder}")
+            else:
+                self.log_message("Source folder selection cancelled")
+        except Exception as e:
+            self.log_message(f"Error selecting source folder: {str(e)}")
+            messagebox.showerror("Error", f"Failed to open folder dialog: {str(e)}")
+
     def browse_output(self):
-        folder = filedialog.askdirectory(title="Select Output Folder")
-        if folder:
-            self.output_folder.set(folder)
+        """Browse for output folder with proper parent window handling"""
+        try:
+            # Ensure the dialog appears on top and is modal to this window
+            folder = filedialog.askdirectory(
+                title="Select Output Folder",
+                parent=self.root,
+                initialdir=os.path.expanduser("~")
+            )
+            if folder:
+                self.output_folder.set(folder)
+                self.log_message(f"Output folder selected: {folder}")
+            else:
+                self.log_message("Output folder selection cancelled")
+        except Exception as e:
+            self.log_message(f"Error selecting output folder: {str(e)}")
+            messagebox.showerror("Error", f"Failed to open folder dialog: {str(e)}")
             
     def log_message(self, message):
         """Add message to log with timestamp"""
@@ -306,7 +426,7 @@ class StillsExporterGUI:
         self.log_text.delete(1.0, tk.END)
         
     def update_status(self, message):
-        self.status_var.set(message)
+        self.status_label.config(text=message)
         self.root.update_idletasks()
         
     def update_progress(self, value):
@@ -469,43 +589,109 @@ class StillsExporterGUI:
         # Step 2: AI Tagging (if enabled)
         if self.enable_ai_tagging.get():
             self.log_message(f"AI Tagging enabled for {video_path.name}")
-            
-            if not VISION_AVAILABLE:
-                self.log_message("⚠️ Google Vision library not available")
-                return 1, extracted_count
-                
+
             try:
-                self.log_message(f"Analyzing {extracted_count} frames for {video_path.name}...")
-                self.log_message(f"Using credentials: {self.vision_credentials.get()}")
-                
-                vision_tagger = VisionTagger(self.vision_credentials.get() or None)
-                
-                if vision_tagger.mock_mode:
-                    self.log_message("⚠️ Vision tagger in mock mode - check credentials")
+                if self.use_gallery_system.get() and GALLERY_SYSTEM_AVAILABLE:
+                    # Use new gallery-based system
+                    self.log_message("✓ Using Gallery Recognition System")
+
+                    # Prefer Roboflow key, fall back to Google key
+                    api_key = (self.training_manager.get_roboflow_api_key()
+                               or self.training_manager.get_api_key())
+                    if not api_key:
+                        self.log_message("❌ No API key configured — add roboflow_api_key to config/ai_config.json")
+                        return 1, extracted_count
+
+                    # Initialize enhanced processor
+                    processor = EnhancedVideoProcessor(api_key=api_key)
+
+                    # Process video with gallery system
+                    result = processor.process_video_with_gallery(
+                        video_path=video_path,
+                        output_dir=clip_stills_folder.parent
+                    )
+
+                    if result.get('success'):
+                        gallery_matches = result.get('gallery_matches', [])
+                        final_tags = result.get('final_tags', [])
+
+                        self.log_message(f"✅ Gallery processing complete:")
+                        self.log_message(f"  Gallery matches: {len(gallery_matches)}")
+                        self.log_message(f"  Final tags: {len(final_tags)}")
+
+                        # Show top results
+                        if gallery_matches:
+                            self.log_message("  Top gallery matches:")
+                            for match in gallery_matches[:3]:
+                                self.log_message(f"    - {match['gallery_label']} ({match['confidence']:.2f})")
+
+                        if final_tags:
+                            self.log_message("  Top tags:")
+                            for tag in final_tags[:5]:
+                                self.log_message(f"    - {tag['tag']} ({tag['confidence']:.2f})")
+                    else:
+                        self.log_message(f"❌ Gallery processing failed: {result.get('error', 'Unknown error')}")
+
                 else:
-                    self.log_message("✓ Vision tagger initialized successfully")
-                
-                # Get all extracted images
-                image_files = list(clip_stills_folder.glob(f"{base_name}_*.{image_format}"))
-                self.log_message(f"Found {len(image_files)} images to analyze")
-                
-                # Analyze each image
-                analysis_results = []
-                for img_path in image_files:
-                    if self.stop_flag.is_set():
-                        break
-                    self.log_message(f"  Analyzing {img_path.name}...")
-                    result = vision_tagger.analyze_image(img_path)
-                    analysis_results.append(result)
-                
-                # Save analysis to XML
-                if analysis_results:
-                    xml_path = clip_stills_folder / f"{base_name}_tags.xml"
-                    vision_tagger.create_xml_tags(analysis_results, xml_path)
-                    self.log_message(f"✅ Saved AI analysis to {xml_path.name}")
-                else:
-                    self.log_message("❌ No analysis results to save")
-                
+                    # Use legacy system
+                    self.log_message("✓ Using Legacy AI System")
+
+                    if not VISION_AVAILABLE:
+                        self.log_message("⚠️ Google Vision library not available")
+                        return 1, extracted_count
+
+                    self.log_message(f"Analyzing {extracted_count} frames for {video_path.name}...")
+
+                    # Get API keys and training examples
+                    roboflow_key = self.training_manager.get_roboflow_api_key()
+                    roboflow_model = self.training_manager.get_roboflow_model_id()
+                    google_key = self.training_manager.get_api_key()
+                    training_examples = self.training_manager.get_training_examples(max_per_category=3)
+
+                    if training_examples:
+                        self.log_message(f"Using {len(training_examples)} training examples (3 per category for speed)")
+                        for ex in training_examples:
+                            self.log_message(f"  - {ex['label']}: {Path(ex['image_path']).name}")
+
+                    # Initialize tagger — Roboflow takes priority
+                    vision_tagger = VisionTagger(
+                        credentials_path=self.vision_credentials.get() or None,
+                        api_key=google_key,
+                        training_examples=training_examples,
+                        roboflow_api_key=roboflow_key,
+                        roboflow_model_id=roboflow_model,
+                    )
+
+                    if vision_tagger.roboflow_tagger and vision_tagger.roboflow_tagger.available:
+                        self.log_message(f"✓ Using Roboflow ({roboflow_model}) for AI tagging")
+                    elif vision_tagger.langchain_tagger:
+                        self.log_message("✓ Using LangChain + Gemini for AI tagging")
+                    elif vision_tagger.mock_mode:
+                        self.log_message("⚠️ Vision tagger in mock mode — check credentials")
+                    else:
+                        self.log_message("✓ Using legacy Google Vision API")
+
+                    # Get all extracted images
+                    image_files = list(clip_stills_folder.glob(f"{base_name}_*.{image_format}"))
+                    self.log_message(f"Found {len(image_files)} images to analyze")
+
+                    # Analyze each image
+                    analysis_results = []
+                    for img_path in image_files:
+                        if self.stop_flag.is_set():
+                            break
+                        self.log_message(f"  Analyzing {img_path.name}...")
+                        result = vision_tagger.analyze_image(img_path)
+                        analysis_results.append(result)
+
+                    # Save analysis to XML
+                    if analysis_results:
+                        xml_path = clip_stills_folder / f"{base_name}_tags.xml"
+                        vision_tagger.create_xml_tags(analysis_results, xml_path)
+                        self.log_message(f"✅ Saved AI analysis to {xml_path.name}")
+                    else:
+                        self.log_message("❌ No analysis results to save")
+
             except Exception as e:
                 self.log_message(f"❌ AI tagging error for {video_path.name}: {str(e)}")
                 import traceback

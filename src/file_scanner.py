@@ -47,8 +47,9 @@ class FileScanner:
             
             # Get video-specific info if it's a video
             if file_path.suffix.lower() in self.video_extensions:
-                video_info = self._get_video_info(file_path)
-                file_info.update(video_info)
+                video_info = self._get_video_info_simple(file_path)
+                if video_info:
+                    file_info.update(video_info)
             
             return file_info
             
@@ -64,41 +65,146 @@ class FileScanner:
         elif ext in self.image_extensions:
             return 'image'
         return 'unknown'
-    
-    def _get_video_info(self, video_path: Path) -> Dict:
-        """Extract video metadata using ffprobe"""
+
+    def _get_video_info_simple(self, file_path: Path) -> Optional[Dict]:
+        """Get basic video info without ffprobe (for faster scanning)"""
+        try:
+            # Try to get detailed info with ffprobe
+            return self._get_video_info_detailed(file_path)
+        except Exception as e:
+            # Fallback to basic info if ffprobe fails
+            print(f"Using basic info for {file_path.name}: {e}")
+            return {
+                'duration': 0,
+                'width': 0,
+                'height': 0,
+                'codec': 'unknown'
+            }
+
+    def _get_video_info_detailed(self, file_path: Path) -> Optional[Dict]:
+        """Get detailed video info using ffprobe"""
         try:
             cmd = [
                 'ffprobe', '-v', 'quiet', '-print_format', 'json',
-                '-show_format', '-show_streams', str(video_path)
+                '-show_format', '-show_streams', str(file_path)
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+            if result.returncode != 0:
+                return None
+
+            data = json.loads(result.stdout)
+            format_info = data.get('format', {})
+
+            # Find video stream
+            video_stream = None
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    video_stream = stream
+                    break
+
+            return {
+                'duration': float(format_info.get('duration', 0)),
+                'width': video_stream.get('width', 0) if video_stream else 0,
+                'height': video_stream.get('height', 0) if video_stream else 0,
+                'codec': video_stream.get('codec_name', '') if video_stream else ''
+            }
+
+        except Exception as e:
+            return None
+
+    def get_video_info(self, filepath: Path) -> Dict:
+        """Get video file information including embedded metadata"""
+        try:
+            # Get basic file info
+            stat = filepath.stat()
+            
+            # Get video metadata using ffprobe
+            cmd = [
+                'ffprobe', '-v', 'quiet', '-print_format', 'json',
+                '-show_format', '-show_streams', str(filepath)
             ]
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            if result.returncode != 0:
+                raise Exception(f"ffprobe failed: {result.stderr}")
             
-            if result.returncode == 0:
-                data = json.loads(result.stdout)
-                
-                # Find video stream
-                video_stream = None
-                for stream in data.get('streams', []):
-                    if stream.get('codec_type') == 'video':
-                        video_stream = stream
-                        break
-                
-                info = {}
-                if video_stream:
-                    info['width'] = video_stream.get('width')
-                    info['height'] = video_stream.get('height')
-                
-                # Get duration from format
-                format_info = data.get('format', {})
-                duration = format_info.get('duration')
-                if duration:
-                    info['duration'] = float(duration)
-                
-                return info
+            data = json.loads(result.stdout)
+            format_info = data.get('format', {})
+            
+            # Find video stream
+            video_stream = None
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    video_stream = stream
+                    break
+            
+            # Extract embedded metadata using ExifTool
+            embedded_metadata = self.extract_embedded_metadata(filepath)
+            
+            return {
+                'filepath': str(filepath),
+                'filename': filepath.name,
+                'filesize': stat.st_size,
+                'file_type': 'video',
+                'duration': float(format_info.get('duration', 0)),
+                'width': video_stream.get('width', 0) if video_stream else 0,
+                'height': video_stream.get('height', 0) if video_stream else 0,
+                'codec': video_stream.get('codec_name', '') if video_stream else '',
+                'created_date': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                'modified_date': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                # Add embedded metadata
+                'keywords': embedded_metadata['keywords'],
+                'description': embedded_metadata['description'],
+                'comment': embedded_metadata['comment'],
+                'user_comment': embedded_metadata['user_comment']
+            }
             
         except Exception as e:
-            print(f"Error getting video info for {video_path}: {e}")
-        
-        return {}
+            print(f"Error getting video info for {filepath}: {e}")
+            return None
+    
+    def extract_embedded_metadata(self, filepath: Path) -> Dict:
+        """Extract embedded metadata from video file using ExifTool"""
+        try:
+            cmd = ['exiftool', '-Keywords', '-Subject', '-Description', '-Comment', '-UserComment', '-json', str(filepath)]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                import json
+                metadata = json.loads(result.stdout)[0]
+                
+                # Extract keywords from various fields
+                keywords = []
+                
+                # Get Keywords field (can be string or array)
+                if 'Keywords' in metadata:
+                    kw = metadata['Keywords']
+                    if isinstance(kw, list):
+                        keywords.extend(kw)
+                    elif isinstance(kw, str):
+                        keywords.append(kw)
+                
+                # Get Subject field as backup
+                if 'Subject' in metadata and not keywords:
+                    subj = metadata['Subject']
+                    if isinstance(subj, list):
+                        keywords.extend(subj)
+                    elif isinstance(subj, str):
+                        keywords.append(subj)
+                
+                return {
+                    'keywords': list(set(keywords)),  # Remove duplicates
+                    'description': metadata.get('Description', ''),
+                    'comment': metadata.get('Comment', ''),
+                    'user_comment': metadata.get('UserComment', '')
+                }
+            else:
+                return {'keywords': [], 'description': '', 'comment': '', 'user_comment': ''}
+                
+        except Exception as e:
+            print(f"Error extracting metadata from {filepath}: {e}")
+            return {'keywords': [], 'description': '', 'comment': '', 'user_comment': ''}
+

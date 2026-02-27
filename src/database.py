@@ -83,14 +83,28 @@ class CatalogDatabase:
         self.conn.commit()
     
     def add_file(self, file_info: Dict) -> int:
-        """Add a file to the catalog"""
+        """Add a file to the catalog, or update it if it already exists.
+
+        Uses an upsert pattern (INSERT … ON CONFLICT DO UPDATE) so that
+        re-scanning a file never changes its primary key, which would
+        cascade-delete all of its associated keywords and metadata.
+        """
         cursor = self.conn.cursor()
-        
+
         cursor.execute('''
-            INSERT OR REPLACE INTO files 
-            (filename, filepath, filesize, duration, width, height, 
-             created_date, modified_date, file_type)
+            INSERT INTO files
+                (filename, filepath, filesize, duration, width, height,
+                 created_date, modified_date, file_type)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(filepath) DO UPDATE SET
+                filename     = excluded.filename,
+                filesize     = excluded.filesize,
+                duration     = excluded.duration,
+                width        = excluded.width,
+                height       = excluded.height,
+                created_date = excluded.created_date,
+                modified_date= excluded.modified_date,
+                file_type    = excluded.file_type
         ''', (
             file_info['filename'],
             file_info['filepath'],
@@ -102,8 +116,15 @@ class CatalogDatabase:
             file_info.get('modified_date'),
             file_info.get('file_type')
         ))
-        
-        file_id = cursor.lastrowid
+
+        # lastrowid is 0 on an UPDATE path; fetch the real id.
+        if cursor.lastrowid:
+            file_id = cursor.lastrowid
+        else:
+            cursor.execute('SELECT id FROM files WHERE filepath = ?',
+                           (file_info['filepath'],))
+            file_id = cursor.fetchone()[0]
+
         self.conn.commit()
         return file_id
     
@@ -176,6 +197,19 @@ class CatalogDatabase:
             ORDER BY usage_count DESC, k.keyword
         ''')
         return [dict(row) for row in cursor.fetchall()]
+    
+    def get_file_id(self, filepath: str) -> Optional[int]:
+        """Get file ID by filepath"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT id FROM files WHERE filepath = ?', (filepath,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    
+    def clear_file_keywords(self, file_id: int):
+        """Clear all keywords for a file"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM file_keywords WHERE file_id = ?', (file_id,))
+        self.conn.commit()
     
     def close(self):
         """Close database connection"""

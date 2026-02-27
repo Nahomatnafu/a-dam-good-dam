@@ -1,0 +1,38 @@
+[
+  {
+    "name": "President Inch Image",
+    "path": "data/gallery/president_inch/President-Edward-Inch-0001.jpg",
+    "expected_labels": [
+      "president inch",
+      "university president",
+      "person"
+    ]
+  },
+  {
+    "name": "Andreas Observatory Image",
+    "path": "data/gallery/Andreas Observatory/Andreas_Observatory_01.jpg",
+    "expected_labels": [
+      "andreas observatory",
+      "observatory",
+      "building"
+    ]
+  },
+  {
+    "name": "Armstrong Hall Image",
+    "path": "data/gallery/Armstrong Hall/Armstrong_Hall_01.jpg",
+    "expected_labels": [
+      "armstrong hall",
+      "hall",
+      "building"
+    ]
+  },
+  {
+    "name": "Performing Arts Image",
+    "path": "data/gallery/Performing Arts/performing_arts_building_01.jpg",
+    "expected_labels": [
+      "performing arts",
+      "performing arts building",
+      "building"
+    ]
+  }
+]

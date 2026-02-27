@@ -41,12 +41,19 @@ temp/
 
 # Test Data (don't commit large video files)
 test_data/
+test_videos/
 NeoFinder_Test/
+demo_output/
+batch_demo_output/
 
-# Credentials
+# Credentials and API Keys
 *credentials*.json
 *.key
 .env
+config/ai_config.json
+
+# User session state (last-opened catalog, window state, etc.)
+config.json
 
 # OS
 .DS_Store
@@ -56,3 +63,12 @@ desktop.ini
 # Temporary files
 *.tmp
 *.temp
+
+# Gallery and training data (keep out of repo)
+/data/gallery/
+/data/cache/
+training_images/
+
+# Keep structure files
+!/data/gallery/.gitkeep
+!/data/cache/.gitkeep

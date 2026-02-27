@@ -1,0 +1,119 @@
+{
+  "avg_precision": 0.10267857142857142,
+  "avg_recall": 0.25,
+  "avg_f1": 0.14545454545454545,
+  "avg_accuracy": 0.25,
+  "avg_processing_time": 24.553998470306396,
+  "total_tests": 4,
+  "individual_results": [
+    {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0,
+      "accuracy": 0.0,
+      "true_positives": 0,
+      "false_positives": 1,
+      "false_negatives": 3,
+      "predicted_labels": [
+        "suit jacket"
+      ],
+      "expected_labels": [
+        "person",
+        "university president",
+        "president inch"
+      ],
+      "matched_labels": [],
+      "processing_time": 24.182868719100952,
+      "gallery_matches_found": 0,
+      "total_tags_found": 1
+    },
+    {
+      "precision": 0.14285714285714285,
+      "recall": 0.3333333333333333,
+      "f1": 0.2,
+      "accuracy": 0.3333333333333333,
+      "true_positives": 1,
+      "false_positives": 6,
+      "false_negatives": 2,
+      "predicted_labels": [
+        "performing arts building 01",
+        "building",
+        "performing arts building 03",
+        "performing arts building 04",
+        "windows",
+        "performing arts building 02",
+        "performing arts building 05"
+      ],
+      "expected_labels": [
+        "observatory",
+        "andreas observatory",
+        "building"
+      ],
+      "matched_labels": [
+        "building"
+      ],
+      "processing_time": 26.83595848083496,
+      "gallery_matches_found": 5,
+      "total_tags_found": 7
+    },
+    {
+      "precision": 0.125,
+      "recall": 0.3333333333333333,
+      "f1": 0.18181818181818182,
+      "accuracy": 0.3333333333333333,
+      "true_positives": 1,
+      "false_positives": 7,
+      "false_negatives": 2,
+      "predicted_labels": [
+        "performing arts building 01",
+        "building",
+        "textured wall",
+        "performing arts building 03",
+        "performing arts building 04",
+        "performing arts building 02",
+        "stone wall",
+        "performing arts building 05"
+      ],
+      "expected_labels": [
+        "hall",
+        "building",
+        "armstrong hall"
+      ],
+      "matched_labels": [
+        "building"
+      ],
+      "processing_time": 20.80193591117859,
+      "gallery_matches_found": 5,
+      "total_tags_found": 8
+    },
+    {
+      "precision": 0.14285714285714285,
+      "recall": 0.3333333333333333,
+      "f1": 0.2,
+      "accuracy": 0.3333333333333333,
+      "true_positives": 1,
+      "false_positives": 6,
+      "false_negatives": 2,
+      "predicted_labels": [
+        "performing arts building 01",
+        "building",
+        "performing arts building 03",
+        "performing arts building 04",
+        "windows",
+        "performing arts building 02",
+        "performing arts building 05"
+      ],
+      "expected_labels": [
+        "performing arts",
+        "performing arts building",
+        "building"
+      ],
+      "matched_labels": [
+        "building"
+      ],
+      "processing_time": 26.395230770111084,
+      "gallery_matches_found": 5,
+      "total_tags_found": 7
+    }
+  ]
+}

@@ -126,8 +126,8 @@ class FileScanner:
                 '-show_format', '-show_streams', str(filepath)
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
             if result.returncode != 0:
                 raise Exception(f"ffprobe failed: {result.stderr}")
             
@@ -153,8 +153,8 @@ class FileScanner:
                 'width': video_stream.get('width', 0) if video_stream else 0,
                 'height': video_stream.get('height', 0) if video_stream else 0,
                 'codec': video_stream.get('codec_name', '') if video_stream else '',
-                'created_date': stat.st_ctime,
-                'modified_date': stat.st_mtime,
+                'created_date': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                'modified_date': datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 # Add embedded metadata
                 'keywords': embedded_metadata['keywords'],
                 'description': embedded_metadata['description'],

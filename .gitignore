@@ -52,6 +52,9 @@ batch_demo_output/
 .env
 config/ai_config.json
 
+# User session state (last-opened catalog, window state, etc.)
+config.json
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,4 +1,7 @@
 import base64
+import mimetypes
+import warnings
+from pathlib import Path
 from typing import List, Dict, Optional
 
 from langchain_core.messages import HumanMessage
@@ -81,10 +84,15 @@ class ImageTagger:
         Returns:
             TaggingOutput: A Pydantic object containing a list of tags.
         """
-        # A helper function to encode the image
+        # Helper: encode image to base64 and detect its MIME type
         def encode_image(filepath):
+            mime_type, _ = mimetypes.guess_type(filepath)
+            if mime_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+                # Fall back to jpeg for unknown types; Gemini accepts these four
+                mime_type = "image/jpeg"
             with open(filepath, "rb") as image_file:
-                return base64.b64encode(image_file.read()).decode('utf-8')
+                data = base64.b64encode(image_file.read()).decode("utf-8")
+            return data, mime_type
 
         # Start building the multimodal message content
         content = [{"type": "text", "text": ImageTagger.PROMPT_TEMPLATE}]
@@ -95,7 +103,18 @@ class ImageTagger:
                 image_path = example.get('image_path')
                 label = example.get('label')
                 if not image_path or not label:
-                    raise ValueError("Each example must have both an 'image_path' and a 'label'.")
+                    warnings.warn(
+                        "Skipping example with missing 'image_path' or 'label'.",
+                        UserWarning,
+                    )
+                    continue
+
+                if not Path(image_path).exists():
+                    warnings.warn(
+                        f"Example image not found, skipping: {image_path}",
+                        UserWarning,
+                    )
+                    continue
 
                 # Add text introducing the example
                 content.append({
@@ -103,11 +122,11 @@ class ImageTagger:
                     "text": f"--- EXAMPLE --- \nThis is an example image. The subject shown here should be identified and tagged with the label: '{label}'"
                 })
 
-                # Add the example image
-                image_base64 = encode_image(image_path)
+                # Add the example image with the correct MIME type
+                image_base64, mime_type = encode_image(image_path)
                 content.append({
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+                    "image_url": {"url": f"data:{mime_type};base64,{image_base64}"}
                 })
 
         # Add text introducing the final target image
@@ -116,11 +135,11 @@ class ImageTagger:
             "text": "--- TARGET IMAGE --- \nNow, analyze this target image. Generate tags for it based on all the instructions and any examples provided."
         })
 
-        # Add the target image
-        target_image_base64 = encode_image(target_image_path)
+        # Add the target image with the correct MIME type
+        target_image_base64, target_mime = encode_image(target_image_path)
         content.append({
             "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{target_image_base64}"}
+            "image_url": {"url": f"data:{target_mime};base64,{target_image_base64}"}
         })
 
         # Create the final multimodal message

@@ -239,6 +239,10 @@ class StillsExporterGUI:
         # Initialize threading
         self.export_thread = None
         self.stop_flag = threading.Event()
+
+        # Log initialization completion
+        self.log_message("✅ Stills Exporter initialized successfully")
+        self.log_message("Click 'Browse' buttons to select source and output folders")
         
     def setup_ai_section(self, parent):
         """Setup AI tagging section"""
@@ -347,24 +351,59 @@ class StillsExporterGUI:
                                      foreground="red")
 
     def browse_credentials(self):
-        """Browse for Google Cloud credentials JSON"""
-        filename = filedialog.askopenfilename(
-            title="Select Google Cloud Credentials JSON",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-        if filename:
-            self.vision_credentials.set(filename)
-            self.update_ai_status()
+        """Browse for Google Cloud credentials JSON with proper parent window handling"""
+        try:
+            filename = filedialog.askopenfilename(
+                title="Select Google Cloud Credentials JSON",
+                parent=self.root,
+                initialdir=os.path.expanduser("~"),
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+            )
+            if filename:
+                self.vision_credentials.set(filename)
+                self.log_message(f"Credentials file selected: {filename}")
+                self.update_ai_status()
+            else:
+                self.log_message("Credentials file selection cancelled")
+        except Exception as e:
+            self.log_message(f"Error selecting credentials file: {str(e)}")
+            messagebox.showerror("Error", f"Failed to open file dialog: {str(e)}")
             
     def browse_source(self):
-        folder = filedialog.askdirectory(title="Select Source Folder")
-        if folder:
-            self.source_folder.set(folder)
-            
+        """Browse for source folder with proper parent window handling"""
+        try:
+            # Ensure the dialog appears on top and is modal to this window
+            folder = filedialog.askdirectory(
+                title="Select Source Folder",
+                parent=self.root,
+                initialdir=os.path.expanduser("~")
+            )
+            if folder:
+                self.source_folder.set(folder)
+                self.log_message(f"Source folder selected: {folder}")
+            else:
+                self.log_message("Source folder selection cancelled")
+        except Exception as e:
+            self.log_message(f"Error selecting source folder: {str(e)}")
+            messagebox.showerror("Error", f"Failed to open folder dialog: {str(e)}")
+
     def browse_output(self):
-        folder = filedialog.askdirectory(title="Select Output Folder")
-        if folder:
-            self.output_folder.set(folder)
+        """Browse for output folder with proper parent window handling"""
+        try:
+            # Ensure the dialog appears on top and is modal to this window
+            folder = filedialog.askdirectory(
+                title="Select Output Folder",
+                parent=self.root,
+                initialdir=os.path.expanduser("~")
+            )
+            if folder:
+                self.output_folder.set(folder)
+                self.log_message(f"Output folder selected: {folder}")
+            else:
+                self.log_message("Output folder selection cancelled")
+        except Exception as e:
+            self.log_message(f"Error selecting output folder: {str(e)}")
+            messagebox.showerror("Error", f"Failed to open folder dialog: {str(e)}")
             
     def log_message(self, message):
         """Add message to log with timestamp"""
@@ -378,7 +417,7 @@ class StillsExporterGUI:
         self.log_text.delete(1.0, tk.END)
         
     def update_status(self, message):
-        self.status_var.set(message)
+        self.status_label.config(text=message)
         self.root.update_idletasks()
         
     def update_progress(self, value):
